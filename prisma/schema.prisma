@@ -1,0 +1,463 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [pgcrypto]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenant_id String
+  email     String   @unique
+  password  String?
+  passwordEncrypted String? // Encrypted password field
+  roles     Role[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenant_id])
+}
+
+model Role {
+  id          String       @id @default(cuid())
+  tenant_id   String
+  name        String
+  permissions Permission[]
+  users       User[]
+
+  @@index([tenant_id])
+}
+
+model Permission {
+  id     String @id @default(cuid())
+  name   String @unique
+  roles  Role[]
+}
+
+model Company {
+    id        String       @id @default(cuid())
+    tenant_id String       @unique
+    name      String
+    nip       String?      // Polish tax number
+    nipEncrypted String?   // Encrypted NIP field
+    address   String?
+    taxForm   String?      // individual, partnership, corporation
+    vatPayer  Boolean      @default(false)
+    invoices  Invoice[]
+    declarations Declaration[]
+    zusSubmissions ZUSSubmission[]
+    vatRegisters VATRegister[]
+    taxCalculations TaxCalculation[]
+    auditLogs AuditLog[]
+
+    @@index([tenant_id])
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  tenant_id     String
+  company_id    String
+  company       Company  @relation(fields: [company_id], references: [id])
+  number        String
+  series        String
+  date          DateTime
+  dueDate       DateTime?
+  buyerName     String
+  buyerNip      String?
+  buyerAddress  String?
+  items         InvoiceItem[]
+  totalNet      Float
+  totalVat      Float
+  totalGross    Float
+  status        String   @default("draft") // draft, issued, sent
+  pdfUrl        String?
+  ksefStatus    String?  // pending, submitted, confirmed
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenant_id])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoice_id  String
+  invoice     Invoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float
+  unitPrice   Float
+  vatRate     Float
+  gtu         String? // GTU code
+  netAmount   Float
+  vatAmount   Float
+  grossAmount Float
+}
+
+model Declaration {
+   id         String   @id @default(cuid())
+   tenant_id  String
+   company_id String
+   company    Company  @relation(fields: [company_id], references: [id])
+   type       String   // VAT-7, JPK_V7, PIT, CIT
+   period     String   // YYYY-MM for monthly, YYYY-KX for quarterly
+   variant    String?  // M for monthly, K for quarterly (JPK_V7)
+   data       Json     // declaration data
+   status     String   @default("draft") // draft, calculating, ready, submitted, accepted, rejected
+   submittedAt DateTime?
+   upoNumber  String?  // Official confirmation number from US
+   upoDate    DateTime? // UPO confirmation date
+   xmlContent String?  // Generated XML for submission
+   signatureType String? // profil_zaufany, qes, none
+   createdAt  DateTime @default(now())
+   updatedAt  DateTime @updatedAt
+
+   @@index([tenant_id])
+   @@index([company_id])
+   @@index([type])
+   @@index([period])
+}
+
+model ZUSEmployee {
+   id           String   @id @default(cuid())
+   tenant_id    String
+   company_id   String
+   company      Company  @relation(fields: [company_id], references: [id])
+   pesel        String?  // Personal identification number
+   peselEncrypted String? // Encrypted PESEL field
+   firstName    String
+   lastName     String
+   birthDate    DateTime
+   address      String
+   phone        String?
+   email        String?
+   employmentDate DateTime
+   terminationDate DateTime?
+   insuranceStartDate DateTime
+   isOwner      Boolean  @default(false) // Owner vs employee
+   contractType String   // employment, mandate, specific_task
+   salaryBasis  Float    // Basis for social insurance calculation
+   zusRegistrations ZUSRegistration[]
+   zusContributions ZUSContribution[]
+   createdAt    DateTime @default(now())
+   updatedAt    DateTime @updatedAt
+
+   @@index([tenant_id])
+   @@index([company_id])
+   @@index([pesel])
+}
+
+model ZUSRegistration {
+  id           String   @id @default(cuid())
+  tenant_id    String
+  company_id   String
+  company      Company  @relation(fields: [company_id], references: [id])
+  employee_id  String
+  employee     ZUSEmployee @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  formType     String   // ZUA, ZZA, ZWUA
+  registrationDate DateTime
+  insuranceTypes Json   // Types of insurance: emerytalna, rentowa, chorobowa, wypadkowa, zdrowotna
+  contributionBasis Float // Basis for calculations
+  status       String   @default("draft") // draft, submitted, confirmed, cancelled
+  zusReferenceNumber String?
+  upoNumber    String?  // Official confirmation number
+  upoDate      DateTime?
+  submittedAt  DateTime?
+  data         Json     // Complete form data
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([employee_id])
+  @@index([formType])
+}
+
+model ZUSReport {
+  id           String   @id @default(cuid())
+  tenant_id    String
+  company_id   String
+  company      Company  @relation(fields: [company_id], references: [id])
+  reportType   String   // RCA, RZA, RSA, DRA, RPA
+  period       String   // YYYY-MM for monthly, YYYY for annual
+  reportDate   DateTime
+  totalEmployees Int    @default(0)
+  totalContributions Float @default(0)
+  status       String   @default("draft") // draft, submitted, confirmed, corrected
+  zusReferenceNumber String?
+  upoNumber    String?  // Official confirmation number
+  upoDate      DateTime?
+  submittedAt  DateTime?
+  data         Json     // Complete report data
+  contributions ZUSContribution[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([reportType])
+  @@index([period])
+}
+
+model ZUSContribution {
+  id           String   @id @default(cuid())
+  tenant_id    String
+  company_id   String
+  company      Company  @relation(fields: [company_id], references: [id])
+  employee_id  String?
+  employee     ZUSEmployee? @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  report_id    String?
+  report       ZUSReport? @relation(fields: [report_id], references: [id], onDelete: Cascade)
+  period       String   // YYYY-MM
+  contributionDate DateTime
+
+  // Social Insurance Contributions (ubezpieczenia społeczne)
+  emerytalnaEmployer Float @default(0) // Emerytalna - employer part (9.76%)
+  emerytalnaEmployee Float @default(0) // Emerytalna - employee part (9.76%)
+  rentowaEmployer    Float @default(0) // Rentowa - employer part (6.5%)
+  rentowaEmployee    Float @default(0) // Rentowa - employee part (1.5%)
+  chorobowaEmployee  Float @default(0) // Chorobowa - employee part (2.45%)
+  wypadkowaEmployer  Float @default(0) // Wypadkowa - employer part (0.67-3.33%)
+
+  // Health Insurance (ubezpieczenie zdrowotne)
+  zdrowotnaEmployee  Float @default(0) // Zdrowotna - employee part (9%)
+  zdrowotnaDeductible Float @default(0) // Amount deductible from tax
+
+  // Other contributions
+  fpEmployee         Float @default(0) // Fundusz Pracy - employee (2.45%)
+  fgspEmployee       Float @default(0) // FGŚP - employee (0.1%)
+
+  // Bases for calculations
+  basisEmerytalnaRentowa Float @default(0)
+  basisChorobowa         Float @default(0)
+  basisZdrowotna         Float @default(0)
+  basisFPFGSP            Float @default(0)
+
+  zusFormType          String? // ZUS RCA, ZUS RZA, etc.
+  status               String  @default("calculated") // calculated, submitted, confirmed
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([employee_id])
+  @@index([period])
+}
+
+model ZUSSubmission {
+  id         String   @id @default(cuid())
+  tenant_id  String
+  company_id String
+  company    Company  @relation(fields: [company_id], references: [id])
+  period     String
+  data       Json
+  status     String   @default("draft")
+  submittedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([tenant_id])
+}
+
+model TaskQueue {
+  id         String   @id @default(cuid())
+  tenant_id  String
+  type       String   // ksef_submission, pdf_generation, etc.
+  payload    Json
+  status     String   @default("pending") // pending, processing, completed, failed
+  priority   Int      @default(1)
+  retryCount Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([tenant_id])
+  @@index([status])
+}
+
+model VATRegister {
+   id           String   @id @default(cuid())
+   tenant_id    String
+   company_id   String
+   company      Company  @relation(fields: [company_id], references: [id])
+   type         String   // sprzedaz (sales), zakup (purchases)
+   period       String   // YYYY-MM
+   counterpartyName String
+   counterpartyNIP  String?
+   invoiceNumber    String
+   invoiceDate      DateTime
+   netAmount        Float
+   vatAmount        Float
+   vatRate          Float
+   gtuCode          String? // GTU classification code
+   documentType     String? // invoice, correction, etc.
+   createdAt        DateTime @default(now())
+   updatedAt        DateTime @updatedAt
+
+   @@index([tenant_id])
+   @@index([company_id])
+   @@index([period])
+   @@index([type])
+}
+
+model TaxCalculation {
+   id              String   @id @default(cuid())
+   tenant_id       String
+   company_id      String
+   company         Company  @relation(fields: [company_id], references: [id])
+   period          String   // YYYY-MM
+   declarationType String   // VAT-7, JPK_V7M, JPK_V7K, PIT, CIT
+
+   // Revenue (przychody)
+   totalRevenue         Float @default(0)
+   vatCollectedSales    Float @default(0) // VAT from sales
+   vatPaidPurchases     Float @default(0) // VAT from purchases
+   vatDue               Float @default(0) // VAT to pay/return
+
+   // Costs (koszty)
+   totalCosts           Float @default(0)
+   taxDeductibleCosts   Float @default(0)
+
+   // Income/Loss (dochód/strata)
+   taxableIncome        Float @default(0)
+
+   // Tax calculation (zaliczki)
+   taxBase              Float @default(0)
+   taxDue               Float @default(0)
+   previousAdvance      Float @default(0)
+   advanceToPay         Float @default(0)
+
+   // Status
+   status               String @default("draft") // draft, calculated, verified
+   calculatedAt         DateTime?
+   createdAt            DateTime @default(now())
+   updatedAt            DateTime @updatedAt
+
+   @@index([tenant_id])
+   @@index([company_id])
+   @@index([period])
+   @@index([declarationType])
+}
+
+model AuditLog {
+    id        String   @id @default(cuid())
+    tenant_id String
+    company_id String?
+    company   Company? @relation(fields: [company_id], references: [id])
+    user_id   String?
+    action    String
+    entity    String
+    entityId  String?
+    details   Json?
+    createdAt DateTime @default(now())
+
+    @@index([tenant_id])
+    @@index([company_id])
+    @@index([createdAt])
+}
+
+model NotificationTemplate {
+    id        String   @id @default(cuid())
+    tenant_id String
+    name      String
+    type      String   // deadline, status, reminder, info
+    title     String
+    body      String
+    variables String[] // Array of variable names
+    isActive  Boolean  @default(true)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([type])
+}
+
+model Notification {
+    id          String   @id @default(cuid())
+    tenant_id   String
+    user_id     String
+    type        String   // deadline, status, reminder, info
+    title       String
+    body        String
+    data        Json?    // Additional data
+    priority    String   @default("normal") // low, normal, high
+    status      String   @default("pending") // pending, sent, delivered, read, failed
+    scheduledFor DateTime?
+    sentAt      DateTime?
+    deliveredAt DateTime?
+    readAt      DateTime?
+    failureReason String?
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([user_id])
+    @@index([status])
+    @@index([scheduledFor])
+}
+
+model DeadlineReminder {
+    id          String   @id @default(cuid())
+    tenant_id   String
+    deadlineId  String   // References the calculated deadline ID
+    user_id     String
+    reminderType String  // upcoming, due, overdue
+    scheduledFor DateTime
+    sent        Boolean  @default(false)
+    sentAt      DateTime?
+    createdAt   DateTime @default(now())
+
+    @@index([tenant_id])
+    @@index([user_id])
+    @@index([deadlineId])
+    @@index([scheduledFor])
+}
+
+model DeadlineCompletion {
+    id          String   @id @default(cuid())
+    tenant_id   String
+    deadlineId  String
+    user_id     String
+    completedAt DateTime @default(now())
+    notes       String?
+
+    @@index([tenant_id])
+    @@index([deadlineId])
+    @@index([user_id])
+}
+
+model OfficialCommunication {
+    id              String   @id @default(cuid())
+    tenant_id       String
+    company_id      String
+    type            String   // submission, confirmation, rejection, correction, inquiry
+    entityType      String   // invoice, declaration, zus, tax
+    entityId        String
+    status          String   // sent, delivered, acknowledged, rejected, pending_response
+    direction       String   // outbound, inbound
+    officialBody    String   // urzad_skarbowy, zus, ksef, other
+    referenceNumber String?
+    upoNumber       String?  // Official confirmation number
+    description     String
+    content         Json     // Additional data and metadata
+    responseRequired Boolean @default(false)
+    responseDeadline DateTime?
+    respondedAt     DateTime?
+    createdAt       DateTime @default(now())
+    updatedAt       DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([company_id])
+    @@index([entityType])
+    @@index([entityId])
+    @@index([officialBody])
+    @@index([status])
+    @@index([createdAt])
+}
