@@ -7,12 +7,13 @@
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  extensions = [pgcrypto]
+  extensions = [pgcrypto(map: "pgcrypto")]
 }
 
 model User {
@@ -45,22 +46,27 @@ model Permission {
 }
 
 model Company {
-    id        String       @id @default(cuid())
-    tenant_id String       @unique
-    name      String
-    nip       String?      // Polish tax number
-    nipEncrypted String?   // Encrypted NIP field
-    address   String?
-    taxForm   String?      // individual, partnership, corporation
-    vatPayer  Boolean      @default(false)
-    invoices  Invoice[]
-    declarations Declaration[]
-    zusSubmissions ZUSSubmission[]
-    vatRegisters VATRegister[]
-    taxCalculations TaxCalculation[]
-    auditLogs AuditLog[]
+     id        String       @id @default(cuid())
+     tenant_id String       @unique
+     name      String
+     nip       String?      // Polish tax number
+     nipEncrypted String?   // Encrypted NIP field
+     address   String?
+     taxForm   String?      // individual, partnership, corporation
+     vatPayer  Boolean      @default(false)
+     invoices  Invoice[]
+     declarations Declaration[]
+     zusSubmissions ZUSSubmission[]
+     vatRegisters VATRegister[]
+     taxCalculations TaxCalculation[]
+     auditLogs AuditLog[]
+     zusEmployees ZUSEmployee[]
+     zusRegistrations ZUSRegistration[]
+     zusReports ZUSReport[]
+     zusContributions ZUSContribution[]
+     dpiaDocuments DPIADocument[]
 
-    @@index([tenant_id])
+     @@index([tenant_id])
 }
 
 model Invoice {
@@ -268,18 +274,20 @@ model ZUSSubmission {
 }
 
 model TaskQueue {
-  id         String   @id @default(cuid())
-  tenant_id  String
-  type       String   // ksef_submission, pdf_generation, etc.
-  payload    Json
-  status     String   @default("pending") // pending, processing, completed, failed
-  priority   Int      @default(1)
-  retryCount Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+   id         String   @id @default(cuid())
+   tenant_id  String
+   type       String   // ksef_submission, pdf_generation, etc.
+   payload    Json
+   status     String   @default("pending") // pending, processing, completed, failed
+   priority   Int      @default(1)
+   retryCount Int      @default(0)
+   nextRetryAt DateTime?
+   createdAt  DateTime @default(now())
+   updatedAt  DateTime @updatedAt
 
-  @@index([tenant_id])
-  @@index([status])
+   @@index([tenant_id])
+   @@index([status])
+   @@index([nextRetryAt])
 }
 
 model VATRegister {
@@ -434,30 +442,372 @@ model DeadlineCompletion {
 }
 
 model OfficialCommunication {
-    id              String   @id @default(cuid())
-    tenant_id       String
-    company_id      String
-    type            String   // submission, confirmation, rejection, correction, inquiry
-    entityType      String   // invoice, declaration, zus, tax
-    entityId        String
-    status          String   // sent, delivered, acknowledged, rejected, pending_response
-    direction       String   // outbound, inbound
-    officialBody    String   // urzad_skarbowy, zus, ksef, other
-    referenceNumber String?
-    upoNumber       String?  // Official confirmation number
-    description     String
-    content         Json     // Additional data and metadata
-    responseRequired Boolean @default(false)
-    responseDeadline DateTime?
-    respondedAt     DateTime?
-    createdAt       DateTime @default(now())
-    updatedAt       DateTime @updatedAt
+     id              String   @id @default(cuid())
+     tenant_id       String
+     company_id      String
+     type            String   // submission, confirmation, rejection, correction, inquiry
+     entityType      String   // invoice, declaration, zus, tax
+     entityId        String
+     status          String   // sent, delivered, acknowledged, rejected, pending_response
+     direction       String   // outbound, inbound
+     officialBody    String   // urzad_skarbowy, zus, ksef, other
+     referenceNumber String?
+     upoNumber       String?  // Official confirmation number
+     description     String
+     content         Json     // Additional data and metadata
+     responseRequired Boolean @default(false)
+     responseDeadline DateTime?
+     respondedAt     DateTime?
+     createdAt       DateTime @default(now())
+     updatedAt       DateTime @updatedAt
+
+     @@index([tenant_id])
+     @@index([company_id])
+     @@index([entityType])
+     @@index([entityId])
+     @@index([officialBody])
+     @@index([status])
+     @@index([createdAt])
+}
+
+model DataProcessingRecord {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    dataSubjectId     String
+    dataCategory      String
+    purpose           String
+    legalBasis        String
+    startDate         DateTime
+    endDate           DateTime?
+    status            String   // active, completed, expired, withdrawn
+    consentId         String?
+    withdrawalDate    DateTime?
+    withdrawalReason  String?
+    metadata          Json?
+    additionalData    Json?
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([dataSubjectId])
+    @@index([status])
+}
+
+model ConsentRecord {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    dataSubjectId     String
+    purposes          String[] // Array of purposes
+    legalBasis        String
+    consentMethod     String   // explicit, implied, opt_out
+    consentText       String
+    consentDate       DateTime
+    ipAddress         String?
+    userAgent         String?
+    location          String?
+    status            String   // active, withdrawn, expired
+    withdrawalDate    DateTime?
+    withdrawalReason  String?
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([dataSubjectId])
+    @@index([status])
+}
+
+model PrivacyNotice {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    title             String
+    version           String
+    content           String
+    summary           String
+    language          String
+    effectiveDate     DateTime
+    isActive          Boolean  @default(true)
+    noticeType        String   // website, app, service, cookies, marketing
+    targetAudience    String   // all, customers, employees, partners
+    jurisdictions     String[] // ISO country codes
+    createdBy         String
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    sections          PrivacyNoticeSection[]
+    views             PrivacyNoticeView[]
+
+    @@index([tenant_id])
+    @@index([noticeType])
+    @@index([isActive])
+}
+
+model PrivacyNoticeSection {
+    id                String   @id @default(cuid())
+    noticeId          String
+    notice            PrivacyNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+    title             String
+    content           String
+    order             Int
+    sectionType       String   // data_collection, data_usage, data_sharing, data_retention, user_rights, contact, cookies, legal_basis
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([noticeId])
+}
+
+model PrivacyNoticeView {
+    id                String   @id @default(cuid())
+    noticeId          String
+    notice            PrivacyNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+    userId            String?
+    ipAddress         String?
+    userAgent         String?
+    viewedAt          DateTime
+    acceptedAt        DateTime?
+    acceptanceToken   String?
+    createdAt         DateTime @default(now())
+
+    @@index([noticeId])
+    @@index([userId])
+    @@index([viewedAt])
+}
+
+model SecurityAudit {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    type              String   // vulnerability, configuration, compliance, penetration_test
+    status            String   // pass, fail, warning, error
+    severity          String   // low, medium, high, critical
+    title             String
+    description       String
+    findings          Json?    // Array of findings
+    recommendations   Json?    // Array of recommendations
+    evidence          Json?
+    timestamp         DateTime
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([type])
+    @@index([status])
+    @@index([timestamp])
+}
+
+model ComplianceReport {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    overallScore      Float
+    periodStart       DateTime
+    periodEnd         DateTime
+    summary           Json     // Summary statistics
+    trends            Json     // Trend data
+    checks            Json     // Array of compliance checks
+    generatedAt       DateTime
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([generatedAt])
+}
+
+model AnomalyAlert {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    ruleId            String
+    userId            String?
+    companyId         String?
+    type              String
+    severity          String   // low, medium, high, critical
+    description       String
+    evidence          Json
+    detectedAt        DateTime
+    status            String   // new, investigating, resolved, false_positive
+    resolvedAt        DateTime?
+    resolvedBy        String?
+    notes             String?
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([ruleId])
+    @@index([userId])
+    @@index([companyId])
+    @@index([status])
+    @@index([detectedAt])
+}
+
+model UserBehaviorProfile {
+    userId                    String   @id
+    tenant_id                 String
+    companyId                 String
+    baselineLoginTimes        Json     // Array of numbers (hours)
+    baselineActions           Json     // Record<string, number>
+    baselineDataAccess        Json     // Record<string, number>
+    geographicLocations       Json     // Array of strings
+    deviceFingerprints        Json     // Array of strings
+    riskScore                 Float
+    lastUpdated               DateTime
+    createdAt                 DateTime @default(now())
+    updatedAt                 DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([companyId])
+}
+
+model ConsentTemplate {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    name              String
+    title             String
+    content           String
+    purposes          String[] // Array of purposes
+    legalBasis        String
+    consentMethod     String   // explicit, implied, opt_out
+    isActive          Boolean  @default(true)
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([isActive])
+}
+
+model DPIADocument {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    company_id        String
+    company           Company  @relation(fields: [company_id], references: [id])
+    processingActivity String
+    assessor          String
+    assessmentDate    DateTime
+    status            String   // draft, in_progress, completed, approved
+    conclusion        Json?
+    createdBy         String
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    sections          DPIASection[]
+    activities        DPIAActivity[]
 
     @@index([tenant_id])
     @@index([company_id])
-    @@index([entityType])
-    @@index([entityId])
-    @@index([officialBody])
     @@index([status])
-    @@index([createdAt])
+}
+
+model DPIASection {
+    id                String   @id @default(cuid())
+    documentId        String
+    document          DPIADocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+    sectionName       String
+    content           Json
+    order             Int
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([documentId])
+}
+
+model DPIAActivity {
+    id                String   @id @default(cuid())
+    documentId        String
+    document          DPIADocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+    activityName      String
+    description       String
+    riskLevel         String   // low, medium, high
+    mitigationSteps   Json?
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([documentId])
+}
+
+model RiskAssessment {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    documentId        String
+    riskCategory      String
+    riskDescription   String
+    likelihood        String   // low, medium, high
+    impact            String   // low, medium, high
+    riskLevel         String   // low, medium, high, critical
+    mitigationMeasures Json?
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([documentId])
+}
+
+model MitigationMeasure {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    riskId            String
+    measure           String
+    responsible       String
+    deadline          DateTime?
+    status            String   // planned, implemented, effective
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([riskId])
+}
+
+model ComplianceCheck {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    checkId           String
+    name              String
+    category          String   // gdpr, security, data_protection, audit, consent
+    status            String   // pass, fail, warning, error, not_applicable
+    severity          String   // low, medium, high, critical
+    findings          Json?    // Array of findings
+    recommendations   Json?    // Array of recommendations
+    lastChecked       DateTime
+    nextCheckDue      DateTime
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([checkId])
+    @@index([category])
+    @@index([status])
+}
+
+model PrivacySettings {
+    dataSubjectId     String   @id
+    tenant_id         String
+    dataSharing       Boolean  @default(false)
+    marketingCommunications Boolean @default(false)
+    analyticsTracking Boolean  @default(false)
+    thirdPartyCookies Boolean  @default(false)
+    dataRetention     Int      @default(365) // days
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+}
+
+model DataBreachRecord {
+    id                String   @id @default(cuid())
+    tenant_id         String
+    type              String   // confidentiality, integrity, availability
+    severity          String   // low, medium, high, critical
+    description       String
+    affectedDataSubjects Int
+    affectedDataCategories String[]
+    reportedDate      DateTime
+    detectionDate     DateTime
+    containmentDate   DateTime?
+    notificationDate  DateTime?
+    supervisoryAuthorityNotified Boolean @default(false)
+    dataSubjectsNotified Boolean @default(false)
+    mitigationSteps   Json?
+    status            String   // investigating, contained, notified, closed
+    createdAt         DateTime @default(now())
+    updatedAt         DateTime @updatedAt
+
+    @@index([tenant_id])
+    @@index([type])
+    @@index([severity])
+    @@index([reportedDate])
 }

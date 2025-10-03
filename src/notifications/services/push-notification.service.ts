@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 export interface NotificationTemplate {
   id: string;
   name: string;
-  type: 'deadline' | 'status' | 'reminder' | 'info';
+  type: string; // 'deadline' | 'status' | 'reminder' | 'info'
   title: string;
   body: string;
   variables: string[]; // Array of variable names like ['companyName', 'dueDate']
@@ -16,7 +16,7 @@ export interface NotificationTemplate {
 export interface NotificationPayload {
   userId: string;
   tenantId: string;
-  type: 'deadline' | 'status' | 'reminder' | 'info';
+  type: string; // 'deadline' | 'status' | 'reminder' | 'info'
   title: string;
   body: string;
   data?: Record<string, any>;
@@ -30,10 +30,11 @@ export class PushNotificationService {
 
   constructor(private prisma: PrismaService) {}
 
-  async createTemplate(template: Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<NotificationTemplate> {
+  async createTemplate(template: Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt'>, tenantId: string): Promise<NotificationTemplate> {
     try {
       const newTemplate = await this.prisma.notificationTemplate.create({
         data: {
+          tenant_id: tenantId,
           name: template.name,
           type: template.type,
           title: template.title,
@@ -116,8 +117,8 @@ export class PushNotificationService {
       // Store notification in database
       await this.prisma.notification.create({
         data: {
-          userId: payload.userId,
-          tenantId: payload.tenantId,
+          user_id: payload.userId,
+          tenant_id: payload.tenantId,
           type: payload.type,
           title: payload.title,
           body: payload.body,
@@ -142,8 +143,8 @@ export class PushNotificationService {
   async sendBulkNotifications(payloads: NotificationPayload[]): Promise<void> {
     try {
       const notifications = payloads.map(payload => ({
-        userId: payload.userId,
-        tenantId: payload.tenantId,
+        user_id: payload.userId,
+        tenant_id: payload.tenantId,
         type: payload.type,
         title: payload.title,
         body: payload.body,
@@ -245,8 +246,8 @@ export class PushNotificationService {
   ) {
     try {
       const whereClause: any = {
-        userId,
-        tenantId,
+        user_id: userId,
+        tenant_id: tenantId,
       };
 
       if (options?.type) {
@@ -285,7 +286,7 @@ export class PushNotificationService {
       await this.prisma.notification.updateMany({
         where: {
           id: notificationId,
-          userId,
+          user_id: userId,
         },
         data: {
           readAt: new Date(),
@@ -304,8 +305,8 @@ export class PushNotificationService {
     try {
       const result = await this.prisma.notification.updateMany({
         where: {
-          userId,
-          tenantId,
+          user_id: userId,
+          tenant_id: tenantId,
           status: {
             in: ['pending', 'sent'],
           },
@@ -396,7 +397,7 @@ export class PushNotificationService {
         });
 
         if (!existing) {
-          await this.createTemplate(template);
+          await this.createTemplate(template, 'system');
           this.logger.log(`Created default template: ${template.name}`);
         }
       }

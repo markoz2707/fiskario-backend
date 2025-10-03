@@ -48,6 +48,7 @@ export class PrivacyByDesignService {
     try {
       const record = await this.prisma.dataProcessingRecord.create({
         data: {
+          tenant_id: 'system', // Default tenant for data processing records
           dataSubjectId,
           dataCategory: metadata.dataCategory,
           purpose: metadata.purpose,
@@ -56,7 +57,7 @@ export class PrivacyByDesignService {
           endDate: new Date(Date.now() + metadata.retentionPeriod * 24 * 60 * 60 * 1000),
           status: 'active',
           metadata: JSON.stringify(metadata),
-          additionalData: additionalData ? JSON.stringify(additionalData) : null,
+          additionalData: additionalData ? JSON.stringify(additionalData) : undefined,
         }
       });
 
@@ -87,6 +88,7 @@ export class PrivacyByDesignService {
     try {
       const consent = await this.prisma.consentRecord.create({
         data: {
+          tenant_id: 'system', // Default tenant for consent records
           dataSubjectId,
           purposes: consentData.purposes,
           legalBasis: consentData.legalBasis,
@@ -188,10 +190,7 @@ export class PrivacyByDesignService {
   async generateTransparencyReport(dataSubjectId: string): Promise<any> {
     try {
       const processingRecords = await this.prisma.dataProcessingRecord.findMany({
-        where: { dataSubjectId },
-        include: {
-          consentRecord: true
-        }
+        where: { dataSubjectId }
       });
 
       const consentRecords = await this.prisma.consentRecord.findMany({
@@ -280,6 +279,7 @@ export class PrivacyByDesignService {
         where: { dataSubjectId },
         update: defaultSettings,
         create: {
+          tenant_id: 'system', // Default tenant for privacy settings
           dataSubjectId,
           ...defaultSettings,
           createdAt: new Date(),
@@ -314,6 +314,7 @@ export class PrivacyByDesignService {
     try {
       const breach = await this.prisma.dataBreachRecord.create({
         data: {
+          tenant_id: 'system', // Default tenant for data breach records
           ...breachData,
           reportedDate: new Date(),
           status: 'investigating',
@@ -437,6 +438,7 @@ export class PrivacyByDesignService {
         if (!record) {
           record = await this.prisma.dataProcessingRecord.create({
             data: {
+              tenant_id: 'system', // Default tenant for data processing records
               dataSubjectId,
               dataCategory: 'personal',
               purpose,
@@ -465,7 +467,7 @@ export class PrivacyByDesignService {
         where: { id: recordId },
         data: {
           status: 'completed',
-          additionalData: null, // Remove personal data
+          additionalData: undefined, // Remove personal data
         }
       });
 

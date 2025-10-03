@@ -58,7 +58,7 @@ export class AuditLogService {
           action: entry.action,
           entity: entry.entity,
           entityId: entry.entityId,
-          details: entry.details ? JSON.stringify(entry.details) : null,
+          details: entry.details ? JSON.stringify(entry.details) : undefined,
           createdAt: timestamp,
         }
       });

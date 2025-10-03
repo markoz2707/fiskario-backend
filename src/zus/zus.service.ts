@@ -135,7 +135,7 @@ export class ZusService {
       employee: {
         firstName: employee.firstName,
         lastName: employee.lastName,
-        pesel: employee.pesel,
+        pesel: employee.pesel || undefined,
         address: employee.address,
       },
       insuranceTypes: dto.insuranceTypes,
@@ -156,7 +156,7 @@ export class ZusService {
         registrationDate: new Date(dto.registrationDate),
         insuranceTypes: dto.insuranceTypes,
         contributionBasis: dto.contributionBasis,
-        data: formData,
+        data: formData as any,
       },
     });
   }
@@ -203,7 +203,7 @@ export class ZusService {
         employeeId: c.employee_id || '',
         firstName: c.employee?.firstName || '',
         lastName: c.employee?.lastName || '',
-        pesel: c.employee?.pesel,
+        pesel: c.employee?.pesel || undefined,
         contributions: {
           emerytalnaEmployer: c.emerytalnaEmployer,
           emerytalnaEmployee: c.emerytalnaEmployee,
@@ -227,7 +227,7 @@ export class ZusService {
         reportDate: new Date(dto.reportDate),
         totalEmployees: reportData.summary.totalEmployees,
         totalContributions: reportData.summary.totalContributions,
-        data: reportData,
+        data: reportData as any,
       },
     });
   }

@@ -348,7 +348,7 @@ export class DeadlineManagementService {
         const existingReminder = await this.prisma.deadlineReminder.findFirst({
           where: {
             deadlineId: reminder.deadlineId,
-            userId: reminder.userId,
+            user_id: reminder.userId,
             reminderType: reminder.reminderType,
           },
         });
@@ -377,9 +377,6 @@ export class DeadlineManagementService {
             lte: now,
           },
           sent: false,
-        },
-        include: {
-          // Include related deadline info if you have a relation
         },
       });
 
@@ -500,7 +497,7 @@ export class DeadlineManagementService {
     }
   }
 
-  async markDeadlineAsCompleted(deadlineId: string, userId: string): Promise<void> {
+  async markDeadlineAsCompleted(deadlineId: string, userId: string, tenantId: string): Promise<void> {
     try {
       // In a real implementation, you'd update a deadlines table
       // For now, we'll just log the completion
@@ -510,7 +507,8 @@ export class DeadlineManagementService {
       await this.prisma.deadlineCompletion.create({
         data: {
           deadlineId,
-          userId,
+          user_id: userId,
+          tenant_id: tenantId,
           completedAt: new Date(),
         },
       });

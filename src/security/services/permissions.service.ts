@@ -196,6 +196,9 @@ export class PermissionsService {
             where: {
               // Assuming roles have tenant_id matching firma
               // This would need to be adjusted based on actual schema
+            },
+            include: {
+              permissions: true
             }
           }
         }

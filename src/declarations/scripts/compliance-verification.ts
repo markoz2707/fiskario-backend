@@ -56,7 +56,7 @@ export class ComplianceVerificationService {
   /**
    * Runs comprehensive compliance verification
    */
-  async runComplianceVerification(companyId?: string): Promise<ComplianceReport> {
+  async runComplianceVerification(companyId?: string, tenantId?: string): Promise<ComplianceReport> {
     try {
       this.logger.log('Starting comprehensive compliance verification');
 
@@ -99,7 +99,7 @@ export class ComplianceVerificationService {
       };
 
       // Save report to database
-      await this.saveComplianceReport(report);
+      await this.saveComplianceReport(report, tenantId);
 
       this.logger.log(`Compliance verification completed. Overall score: ${overallScore}%`);
 
@@ -692,10 +692,11 @@ export class ComplianceVerificationService {
     };
   }
 
-  private async saveComplianceReport(report: ComplianceReport): Promise<void> {
+  private async saveComplianceReport(report: ComplianceReport, tenantId?: string): Promise<void> {
     try {
       await this.prisma.complianceReport.create({
         data: {
+          tenant_id: tenantId || 'system', // Default to 'system' if no tenant provided
           overallScore: report.overallScore,
           periodStart: report.period.startDate,
           periodEnd: report.period.endDate,

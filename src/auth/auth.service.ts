@@ -22,6 +22,21 @@ export class AuthService {
     return null;
   }
 
+  async register(email: string, password: string, tenantId?: string) {
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        tenant_id: tenantId || 'default-tenant',
+      },
+    });
+
+    const { password: _, ...result } = user;
+    return result;
+  }
+
   async login(user: any) {
     const payload = { email: user.email, sub: user.id, tenant_id: user.tenant_id };
     return {

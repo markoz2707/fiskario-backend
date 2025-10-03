@@ -11,14 +11,13 @@ import { PLReportFiltersDto } from './dto/pl-report.dto';
 import { VATRegisterFiltersDto } from './dto/vat-register-report.dto';
 import { CashflowFiltersDto } from './dto/cashflow-report.dto';
 import { ReceivablesPayablesFiltersDto } from './dto/receivables-payables-report.dto';
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import * as path from 'path';
 
 interface AuthenticatedUser {
   userId: string;
   email: string;
   tenant_id: string;
-  company_id?: string;
 }
 
 @Controller('reports')
@@ -34,7 +33,7 @@ export class ReportsController {
 
   private getUserInfo(req: Request & { user: AuthenticatedUser }) {
     const tenantId = req.user?.tenant_id;
-    const companyId = req.user?.company_id || 'default-company';
+    const companyId = req.user?.tenant_id; // Use tenant_id as company_id
 
     if (!tenantId) {
       throw new HttpException('Tenant ID is required', HttpStatus.BAD_REQUEST);
@@ -126,12 +125,12 @@ export class ReportsController {
   @Get('cashflow')
   @Roles('user', 'admin')
   async getCashflowReport(
-    @Req() req: Request,
+    @Req() req: Request & { user: AuthenticatedUser },
     @Query() filters: CashflowFiltersDto,
   ) {
     try {
       const tenantId = req.user?.tenant_id;
-      const companyId = req.user?.company_id;
+      const companyId = req.user?.tenant_id;
 
       if (!tenantId || !companyId) {
         throw new HttpException('Tenant ID and Company ID are required', HttpStatus.BAD_REQUEST);
@@ -155,12 +154,12 @@ export class ReportsController {
   @Get('receivables-payables')
   @Roles('user', 'admin')
   async getReceivablesPayablesReport(
-    @Req() req: Request,
+    @Req() req: Request & { user: AuthenticatedUser },
     @Query() filters: ReceivablesPayablesFiltersDto,
   ) {
     try {
       const tenantId = req.user?.tenant_id;
-      const companyId = req.user?.company_id;
+      const companyId = req.user?.tenant_id;
 
       if (!tenantId || !companyId) {
         throw new HttpException('Tenant ID and Company ID are required', HttpStatus.BAD_REQUEST);
@@ -184,14 +183,14 @@ export class ReportsController {
   @Post('pl/export/:format')
   @Roles('user', 'admin')
   async exportPLReport(
-    @Req() req: Request,
+    @Req() req: Request & { user: AuthenticatedUser },
     @Param('format') format: 'csv' | 'xlsx' | 'pdf',
     @Query() filters: PLReportFiltersDto,
     @Res() res: Response,
   ) {
     try {
       const tenantId = req.user?.tenant_id;
-      const companyId = req.user?.company_id;
+      const companyId = req.user?.tenant_id;
 
       if (!tenantId || !companyId) {
         throw new HttpException('Tenant ID and Company ID are required', HttpStatus.BAD_REQUEST);
@@ -265,14 +264,14 @@ export class ReportsController {
   @Post('vat-register/export/:format')
   @Roles('user', 'admin')
   async exportVATRegisterReport(
-    @Req() req: Request,
+    @Req() req: Request & { user: AuthenticatedUser },
     @Param('format') format: 'csv' | 'xlsx' | 'pdf',
     @Query() filters: VATRegisterFiltersDto,
     @Res() res: Response,
   ) {
     try {
       const tenantId = req.user?.tenant_id;
-      const companyId = req.user?.company_id;
+      const companyId = req.user?.tenant_id;
 
       if (!tenantId || !companyId) {
         throw new HttpException('Tenant ID and Company ID are required', HttpStatus.BAD_REQUEST);
@@ -343,14 +342,14 @@ export class ReportsController {
   @Post('cashflow/export/:format')
   @Roles('user', 'admin')
   async exportCashflowReport(
-    @Req() req: Request,
+    @Req() req: Request & { user: AuthenticatedUser },
     @Param('format') format: 'csv' | 'xlsx' | 'pdf',
     @Query() filters: CashflowFiltersDto,
     @Res() res: Response,
   ) {
     try {
       const tenantId = req.user?.tenant_id;
-      const companyId = req.user?.company_id;
+      const companyId = req.user?.tenant_id;
 
       if (!tenantId || !companyId) {
         throw new HttpException('Tenant ID and Company ID are required', HttpStatus.BAD_REQUEST);
@@ -421,14 +420,14 @@ export class ReportsController {
   @Post('receivables-payables/export/:format')
   @Roles('user', 'admin')
   async exportReceivablesPayablesReport(
-    @Req() req: Request,
+    @Req() req: Request & { user: AuthenticatedUser },
     @Param('format') format: 'csv' | 'xlsx' | 'pdf',
     @Query() filters: ReceivablesPayablesFiltersDto,
     @Res() res: Response,
   ) {
     try {
       const tenantId = req.user?.tenant_id;
-      const companyId = req.user?.company_id;
+      const companyId = req.user?.tenant_id;
 
       if (!tenantId || !companyId) {
         throw new HttpException('Tenant ID and Company ID are required', HttpStatus.BAD_REQUEST);

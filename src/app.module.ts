@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
-import { FirmsModule } from './firms/firms.module';
+import { CompaniesModule } from './companies/companies.module';
 import { InvoicingModule } from './invoicing/invoicing.module';
 import { KsefModule } from './ksef/ksef.module';
 import { DeclarationsModule } from './declarations/declarations.module';
@@ -14,7 +15,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SecurityModule } from './security/security.module';
 
 @Module({
-  imports: [AuthModule, PrismaModule, FirmsModule, InvoicingModule, KsefModule, DeclarationsModule, ZusModule, OcrLlmProxyModule, ReportsModule, NotificationsModule, SecurityModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, PrismaModule, CompaniesModule, InvoicingModule, KsefModule, DeclarationsModule, ZusModule, OcrLlmProxyModule, ReportsModule, NotificationsModule, SecurityModule],
   controllers: [AppController],
   providers: [AppService],
 })

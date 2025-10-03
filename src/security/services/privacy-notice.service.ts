@@ -55,6 +55,7 @@ export class PrivacyNoticeService {
     try {
       const privacyNotice = await this.prisma.privacyNotice.create({
         data: {
+          tenant_id: 'system', // Default tenant for privacy notices
           title: notice.title,
           version: notice.version,
           content: notice.content,
@@ -114,7 +115,7 @@ export class PrivacyNoticeService {
       });
 
       // Return the most recent notice
-      return notices.length > 0 ? notices[0] : null;
+      return notices.length > 0 ? notices[0] as any : null;
     } catch (error) {
       this.logger.error(`Failed to get active privacy notice: ${error.message}`, error.stack);
       return null;

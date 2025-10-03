@@ -142,7 +142,7 @@ export class DatabaseEncryptionService {
         );
       `);
 
-      if (!tableExists[0].exists) {
+      if (!(tableExists as any)[0].exists) {
         // Create encryption keys table
         await this.prisma.$queryRawUnsafe(`
           CREATE TABLE encryption_keys (

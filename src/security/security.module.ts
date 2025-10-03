@@ -8,8 +8,8 @@ import { AnomalyDetectionService } from './services/anomaly-detection.service';
 import { ValidationService } from './services/validation.service';
 import { PrivacyByDesignService } from './services/privacy-by-design.service';
 import { DataMinimizationService } from './services/data-minimization.service';
-import { ConsentManagementService } from './services/consent-management.service';
-import { DPIADocumentationService } from './services/dpia-documentation.service';
+// import { ConsentManagementService } from './services/consent-management.service';
+// import { DPIADocumentationService } from './services/dpia-documentation.service';
 import { PrivacyNoticeService } from './services/privacy-notice.service';
 import { EnhancedPermissionsGuard } from './guards/enhanced-permissions.guard';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -26,8 +26,8 @@ import { PrismaModule } from '../prisma/prisma.module';
     ValidationService,
     PrivacyByDesignService,
     DataMinimizationService,
-    ConsentManagementService,
-    DPIADocumentationService,
+    // ConsentManagementService,
+    // DPIADocumentationService,
     PrivacyNoticeService,
     EnhancedPermissionsGuard
   ],
@@ -41,8 +41,8 @@ import { PrismaModule } from '../prisma/prisma.module';
     ValidationService,
     PrivacyByDesignService,
     DataMinimizationService,
-    ConsentManagementService,
-    DPIADocumentationService,
+    // ConsentManagementService,
+    // DPIADocumentationService,
     PrivacyNoticeService,
     EnhancedPermissionsGuard
   ],

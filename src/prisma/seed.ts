@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../../generated/prisma';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -14,11 +14,9 @@ async function main() {
     create: {
       email: 'admin@fiskario.com',
       password: adminPassword,
-      firstName: 'Admin',
-      lastName: 'User',
-      role: 'ADMIN',
-      isEmailVerified: true,
+      tenant_id: 'default-tenant', // Using default tenant
       createdAt: new Date(),
+      updatedAt: new Date(),
     },
   });
 
@@ -26,18 +24,13 @@ async function main() {
 
   // Create test company
   const testCompany = await prisma.company.upsert({
-    where: { id: 'test-company-id' },
+    where: { tenant_id: 'default-tenant' },
     update: {},
     create: {
-      id: 'test-company-id',
+      tenant_id: 'default-tenant',
       name: 'Fiskario Test Company',
       nip: '1234567890',
       address: 'Test Street 123, 00-001 Warsaw, Poland',
-      phone: '+48 123 456 789',
-      email: 'contact@fiskario.com',
-      website: 'https://fiskario.com',
-      isActive: true,
-      createdAt: new Date(),
     },
   });
 
@@ -46,182 +39,279 @@ async function main() {
   // Create sample invoices
   const sampleInvoices = [
     {
-      invoiceNumber: 'INV/2024/001',
-      issueDate: new Date('2024-01-15'),
+      number: 'INV/2024/001',
+      series: 'INV/2024',
+      date: new Date('2024-01-15'),
       dueDate: new Date('2024-02-15'),
-      amount: 1250.00,
-      currency: 'PLN',
-      status: 'PAID',
-      companyId: testCompany.id,
+      buyerName: 'Test Customer 1',
+      totalNet: 1000.00,
+      totalVat: 230.00,
+      totalGross: 1230.00,
+      status: 'issued',
+      company_id: testCompany.id,
+      tenant_id: testCompany.tenant_id,
     },
     {
-      invoiceNumber: 'INV/2024/002',
-      issueDate: new Date('2024-02-01'),
+      number: 'INV/2024/002',
+      series: 'INV/2024',
+      date: new Date('2024-02-01'),
       dueDate: new Date('2024-03-01'),
-      amount: 2500.00,
-      currency: 'PLN',
-      status: 'SENT',
-      companyId: testCompany.id,
-    },
-    {
-      invoiceNumber: 'INV/2024/003',
-      issueDate: new Date('2024-02-15'),
-      dueDate: new Date('2024-03-15'),
-      amount: 875.50,
-      currency: 'PLN',
-      status: 'DRAFT',
-      companyId: testCompany.id,
+      buyerName: 'Test Customer 2',
+      totalNet: 2000.00,
+      totalVat: 460.00,
+      totalGross: 2460.00,
+      status: 'issued',
+      company_id: testCompany.id,
+      tenant_id: testCompany.tenant_id,
     },
   ];
 
   for (const invoiceData of sampleInvoices) {
-    const invoice = await prisma.invoice.upsert({
-      where: { invoiceNumber: invoiceData.invoiceNumber },
-      update: {},
-      create: {
+    const invoice = await prisma.invoice.create({
+      data: {
         ...invoiceData,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
     });
 
-    console.log(`✅ Created invoice: ${invoice.invoiceNumber} - ${invoice.amount} ${invoice.currency}`);
+    console.log(`✅ Created invoice: ${invoice.number} - ${invoice.totalGross} PLN`);
   }
 
   // Create sample ZUS contributions
   const zusContributions = [
     {
       period: '2024-01',
-      contributionType: 'SOCIAL_INSURANCE',
-      amount: 1250.00,
-      dueDate: new Date('2024-02-15'),
-      status: 'PAID',
-      companyId: testCompany.id,
-    },
-    {
-      period: '2024-01',
-      contributionType: 'HEALTH_INSURANCE',
-      amount: 450.00,
-      dueDate: new Date('2024-02-15'),
-      status: 'PAID',
-      companyId: testCompany.id,
+      contributionDate: new Date('2024-01-31'),
+      emerytalnaEmployer: 488.16,
+      emerytalnaEmployee: 488.16,
+      rentowaEmployer: 325.44,
+      rentowaEmployee: 75.00,
+      chorobowaEmployee: 22.45,
+      zdrowotnaEmployee: 270.00,
+      status: 'calculated',
+      company_id: testCompany.id,
+      tenant_id: testCompany.tenant_id,
     },
     {
       period: '2024-02',
-      contributionType: 'SOCIAL_INSURANCE',
-      amount: 1300.00,
-      dueDate: new Date('2024-03-15'),
-      status: 'PENDING',
-      companyId: testCompany.id,
+      contributionDate: new Date('2024-02-29'),
+      emerytalnaEmployer: 500.00,
+      emerytalnaEmployee: 500.00,
+      rentowaEmployer: 333.33,
+      rentowaEmployee: 76.67,
+      chorobowaEmployee: 22.95,
+      zdrowotnaEmployee: 275.00,
+      status: 'calculated',
+      company_id: testCompany.id,
+      tenant_id: testCompany.tenant_id,
     },
   ];
 
   for (const zusData of zusContributions) {
-    const zus = await prisma.zUSContribution.upsert({
-      where: {
-        companyId_period_contributionType: {
-          companyId: zusData.companyId,
-          period: zusData.period,
-          contributionType: zusData.contributionType,
-        },
-      },
-      update: {},
-      create: {
+    const zus = await prisma.zUSContribution.create({
+      data: {
         ...zusData,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
     });
 
-    console.log(`✅ Created ZUS contribution: ${zus.period} - ${zus.contributionType} - ${zus.amount} PLN`);
+    console.log(`✅ Created ZUS contribution: ${zus.period} - Total: ${zus.emerytalnaEmployer + zus.emerytalnaEmployee + zus.rentowaEmployer + zus.rentowaEmployee + zus.chorobowaEmployee + zus.zdrowotnaEmployee} PLN`);
   }
 
   // Create sample tax declarations
   const taxDeclarations = [
     {
-      declarationType: 'PIT_36',
-      taxYear: 2023,
-      submissionDate: new Date('2024-04-30'),
-      status: 'SUBMITTED',
-      companyId: testCompany.id,
+      type: 'VAT-7',
+      period: '2024-01',
+      data: { totalRevenue: 10000, vatDue: 2300 },
+      status: 'submitted',
+      company_id: testCompany.id,
+      tenant_id: testCompany.tenant_id,
     },
     {
-      declarationType: 'VAT_7',
-      taxYear: 2024,
-      submissionDate: new Date('2024-02-25'),
-      status: 'SUBMITTED',
-      companyId: testCompany.id,
-    },
-    {
-      declarationType: 'CIT_8',
-      taxYear: 2023,
-      submissionDate: new Date('2024-03-31'),
-      status: 'SUBMITTED',
-      companyId: testCompany.id,
+      type: 'PIT-36',
+      period: '2023',
+      data: { taxableIncome: 50000, taxDue: 8500 },
+      status: 'submitted',
+      company_id: testCompany.id,
+      tenant_id: testCompany.tenant_id,
     },
   ];
 
   for (const declarationData of taxDeclarations) {
-    const declaration = await prisma.declaration.upsert({
-      where: {
-        companyId_declarationType_taxYear: {
-          companyId: declarationData.companyId,
-          declarationType: declarationData.declarationType,
-          taxYear: declarationData.taxYear,
-        },
-      },
-      update: {},
-      create: {
+    const declaration = await prisma.declaration.create({
+      data: {
         ...declarationData,
         createdAt: new Date(),
         updatedAt: new Date(),
       },
     });
 
-    console.log(`✅ Created declaration: ${declaration.declarationType} for ${declaration.taxYear}`);
+    console.log(`✅ Created declaration: ${declaration.type} for ${declaration.period}`);
+  }
+
+  // Create sample employees
+  const sampleEmployees = [
+    {
+      firstName: 'Jan',
+      lastName: 'Kowalski',
+      pesel: '85010112345',
+      birthDate: new Date('1985-01-01'),
+      address: 'Warsaw, Poland',
+      employmentDate: new Date('2023-01-01'),
+      insuranceStartDate: new Date('2023-01-01'),
+      contractType: 'employment',
+      salaryBasis: 5000.00,
+      tenant_id: testCompany.tenant_id,
+      company_id: testCompany.id,
+    },
+    {
+      firstName: 'Anna',
+      lastName: 'Nowak',
+      pesel: '90020223456',
+      birthDate: new Date('1990-02-02'),
+      address: 'Krakow, Poland',
+      employmentDate: new Date('2023-06-01'),
+      insuranceStartDate: new Date('2023-06-01'),
+      contractType: 'employment',
+      salaryBasis: 4500.00,
+      tenant_id: testCompany.tenant_id,
+      company_id: testCompany.id,
+    },
+  ];
+
+  const createdEmployees: any[] = [];
+  for (const employeeData of sampleEmployees) {
+    const employee = await prisma.zUSEmployee.create({
+      data: {
+        ...employeeData,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    createdEmployees.push(employee);
+    console.log(`✅ Created employee: ${employee.firstName} ${employee.lastName}`);
+  }
+
+  // Create sample ZUS registrations
+  const sampleRegistrations = [
+    {
+      employee_id: createdEmployees[0].id,
+      formType: 'ZUA',
+      registrationDate: new Date('2023-01-15'),
+      insuranceTypes: {
+        emerytalna: true,
+        rentowa: true,
+        chorobowa: true,
+        wypadkowa: true,
+        zdrowotna: true,
+      },
+      contributionBasis: 5000.00,
+      data: {
+        formType: 'ZUA',
+        registrationDate: new Date('2023-01-15'),
+        employee: {
+          firstName: 'Jan',
+          lastName: 'Kowalski',
+          pesel: '85010112345',
+          address: 'Warsaw, Poland',
+        },
+        insuranceTypes: {
+          emerytalna: true,
+          rentowa: true,
+          chorobowa: true,
+          wypadkowa: true,
+          zdrowotna: true,
+        },
+        contributionBasis: 5000.00,
+        company: {
+          name: 'Fiskario Test Company',
+          nip: '1234567890',
+          address: 'Test Street 123, 00-001 Warsaw, Poland',
+        },
+      },
+      tenant_id: testCompany.tenant_id,
+      company_id: testCompany.id,
+    },
+    {
+      employee_id: createdEmployees[1].id,
+      formType: 'ZUA',
+      registrationDate: new Date('2023-06-15'),
+      insuranceTypes: {
+        emerytalna: true,
+        rentowa: true,
+        chorobowa: true,
+        wypadkowa: true,
+        zdrowotna: true,
+      },
+      contributionBasis: 4500.00,
+      data: {
+        formType: 'ZUA',
+        registrationDate: new Date('2023-06-15'),
+        employee: {
+          firstName: 'Anna',
+          lastName: 'Nowak',
+          pesel: '90020223456',
+          address: 'Krakow, Poland',
+        },
+        insuranceTypes: {
+          emerytalna: true,
+          rentowa: true,
+          chorobowa: true,
+          wypadkowa: true,
+          zdrowotna: true,
+        },
+        contributionBasis: 4500.00,
+        company: {
+          name: 'Fiskario Test Company',
+          nip: '1234567890',
+          address: 'Test Street 123, 00-001 Warsaw, Poland',
+        },
+      },
+      tenant_id: testCompany.tenant_id,
+      company_id: testCompany.id,
+    },
+  ];
+
+  for (const registrationData of sampleRegistrations) {
+    const registration = await prisma.zUSRegistration.create({
+      data: {
+        ...registrationData,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(`✅ Created ZUS registration: ${registration.formType} for ${registration.employee_id}`);
   }
 
   // Create sample notifications
   const notifications = [
     {
       title: 'Tax Declaration Due Soon',
-      message: 'Your VAT-7 declaration for February 2024 is due in 5 days.',
-      type: 'DEADLINE_REMINDER',
-      priority: 'HIGH',
-      userId: adminUser.id,
-      companyId: testCompany.id,
-    },
-    {
-      title: 'Invoice Overdue',
-      message: 'Invoice INV/2024/001 is now overdue by 15 days.',
-      type: 'INVOICE_REMINDER',
-      priority: 'MEDIUM',
-      userId: adminUser.id,
-      companyId: testCompany.id,
+      body: 'Your VAT-7 declaration for February 2024 is due in 5 days.',
+      type: 'deadline',
+      priority: 'high',
+      user_id: adminUser.id,
+      tenant_id: testCompany.tenant_id,
     },
     {
       title: 'ZUS Contribution Due',
-      message: 'Your social insurance contribution for February 2024 is due on March 15th.',
-      type: 'ZUS_REMINDER',
-      priority: 'HIGH',
-      userId: adminUser.id,
-      companyId: testCompany.id,
+      body: 'Your social insurance contribution for February 2024 is due on March 15th.',
+      type: 'deadline',
+      priority: 'high',
+      user_id: adminUser.id,
+      tenant_id: testCompany.tenant_id,
     },
   ];
 
   for (const notificationData of notifications) {
-    const notification = await prisma.notification.upsert({
-      where: {
-        userId_companyId_title: {
-          userId: notificationData.userId,
-          companyId: notificationData.companyId,
-          title: notificationData.title,
-        },
-      },
-      update: {},
-      create: {
+    const notification = await prisma.notification.create({
+      data: {
         ...notificationData,
-        isRead: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       },

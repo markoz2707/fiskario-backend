@@ -3,19 +3,19 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export interface OfficialCommunication {
   id: string;
-  type: 'submission' | 'confirmation' | 'rejection' | 'correction' | 'inquiry';
-  entityType: 'invoice' | 'declaration' | 'zus' | 'tax';
+  type: string; // 'submission' | 'confirmation' | 'rejection' | 'correction' | 'inquiry'
+  entityType: string; // 'invoice' | 'declaration' | 'zus' | 'tax'
   entityId: string;
-  status: 'sent' | 'delivered' | 'acknowledged' | 'rejected' | 'pending_response';
-  direction: 'outbound' | 'inbound';
-  officialBody: 'urzad_skarbowy' | 'zus' | 'ksef' | 'other';
-  referenceNumber?: string;
-  upoNumber?: string; // Official confirmation number
+  status: string; // 'sent' | 'delivered' | 'acknowledged' | 'rejected' | 'pending_response'
+  direction: string; // 'outbound' | 'inbound'
+  officialBody: string; // 'urzad_skarbowy' | 'zus' | 'ksef' | 'other'
+  referenceNumber?: string | null;
+  upoNumber?: string | null; // Official confirmation number
   description: string;
-  content: Record<string, any>;
+  content: any;
   responseRequired: boolean;
-  responseDeadline?: Date;
-  respondedAt?: Date;
+  responseDeadline?: Date | null;
+  respondedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -264,7 +264,7 @@ export class StatusCenterService {
       officialBody: OfficialCommunication['officialBody'];
       referenceNumber?: string;
       description: string;
-      content: Record<string, any>;
+      content: any; // JSON data from database
       responseRequired?: boolean;
       responseDeadline?: Date;
     },

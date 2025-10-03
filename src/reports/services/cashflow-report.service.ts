@@ -243,7 +243,7 @@ export class CashflowReportService {
     return entries.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
 
-  private getPaymentStatus(dueDate?: Date): 'pending' | 'paid' | 'overdue' | 'cancelled' {
+  private getPaymentStatus(dueDate: Date | null | undefined): 'pending' | 'paid' | 'overdue' | 'cancelled' {
     if (!dueDate) return 'pending';
 
     const now = new Date();

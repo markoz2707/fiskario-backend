@@ -259,8 +259,8 @@ export class AnomalyDetectionService {
       // Check if export volume is unusual
       const recentExports = await this.getRecentExports(userId, companyId, 24); // Last 24 hours
 
-      const totalRecentRecords = recentExports.reduce(function(sum, export) {
-        return sum + (export.recordCount || 0);
+      const totalRecentRecords = recentExports.reduce(function(sum, exp) {
+        return sum + (exp.recordCount || 0);
       }, 0);
       const averageExportSize = recentExports.length > 0 ? totalRecentRecords / recentExports.length : 0;
 
@@ -297,6 +297,7 @@ export class AnomalyDetectionService {
     try {
       const anomalyAlert = await this.prisma.anomalyAlert.create({
         data: {
+          tenant_id: alert.companyId || 'system',
           ruleId: alert.ruleId!,
           userId: alert.userId,
           companyId: alert.companyId,
@@ -397,6 +398,7 @@ export class AnomalyDetectionService {
       // Save to database
       await this.prisma.userBehaviorProfile.create({
         data: {
+          tenant_id: user.tenant_id,
           userId,
           companyId: user.tenant_id,
           baselineLoginTimes: [],

@@ -35,11 +35,11 @@ export class KsefRetryService {
       data: {
         tenant_id: tenantId,
         type: 'ksef_submission_retry',
-        payload: {
+        payload: JSON.parse(JSON.stringify({
           invoiceDto,
           retryCount,
           maxRetries: this.maxRetries,
-        },
+        })),
         status: 'pending',
         priority: 1,
       },
@@ -73,7 +73,16 @@ export class KsefRetryService {
     });
 
     for (const task of pendingTasks) {
-      await this.processRetryTask(task);
+      const retryTask: RetryTask = {
+        id: task.id,
+        tenant_id: task.tenant_id,
+        type: task.type,
+        payload: task.payload as any,
+        retryCount: task.retryCount,
+        maxRetries: (task.payload as any)?.maxRetries || this.maxRetries,
+        nextRetryAt: task.nextRetryAt || new Date(),
+      };
+      await this.processRetryTask(retryTask);
     }
   }
 

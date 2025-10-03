@@ -9,7 +9,7 @@ import {
   DescribeKeyCommand,
   ListKeysCommand,
   KeySpec,
-  KeyUsage,
+  DataKeySpec,
   EncryptionAlgorithmSpec
 } from '@aws-sdk/client-kms';
 
@@ -112,7 +112,7 @@ export class KmsService {
   /**
    * Generates a data key for envelope encryption
    */
-  async generateDataKey(keySpec: KeySpec = KeySpec.AES_256): Promise<{
+  async generateDataKey(keySpec: DataKeySpec = 'AES_256'): Promise<{
     plaintextKey: Buffer;
     encryptedKey: string;
     keyId: string;
@@ -148,7 +148,6 @@ export class KmsService {
       const command = new CreateKeyCommand({
         Description: description,
         KeySpec: keySpec,
-        KeyUsage: KeyUsage.ENCRYPT_DECRYPT,
         Origin: 'AWS_KMS',
       });
 

@@ -312,8 +312,8 @@ export class SecurityAuditService {
 
       // Check database encryption
       try {
-        const result = await this.prisma.$queryRaw`SELECT * FROM pg_extension WHERE extname = 'pgcrypto'`;
-        if (!result || (result as any[]).length === 0) {
+        const queryResult = await this.prisma.$queryRaw`SELECT * FROM pg_extension WHERE extname = 'pgcrypto'`;
+        if (!queryResult || (queryResult as any[]).length === 0) {
           result.status = 'fail';
           result.findings.push({
             id: 'db-encryption-missing',
@@ -771,6 +771,7 @@ export class SecurityAuditService {
       for (const result of results) {
         await this.prisma.securityAudit.create({
           data: {
+            tenant_id: 'system', // Default to 'system' for audit results
             type: result.type,
             status: result.status,
             severity: result.severity,

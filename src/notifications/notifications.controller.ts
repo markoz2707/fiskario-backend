@@ -31,7 +31,8 @@ export class NotificationsController {
     @Body() templateData: Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt'>,
   ) {
     try {
-      const template = await this.pushNotificationService.createTemplate(templateData);
+      const { tenant_id } = req.user;
+      const template = await this.pushNotificationService.createTemplate(templateData, tenant_id);
 
       return {
         success: true,
@@ -249,9 +250,9 @@ export class NotificationsController {
     @Body() body: { notes?: string },
   ) {
     try {
-      const { userId } = req.user;
+      const { userId, tenant_id } = req.user;
 
-      await this.deadlineManagementService.markDeadlineAsCompleted(deadlineId, userId);
+      await this.deadlineManagementService.markDeadlineAsCompleted(deadlineId, userId, tenant_id);
 
       return {
         success: true,
