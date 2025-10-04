@@ -10,12 +10,22 @@ export class AuthController {
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto.email, dto.password, dto.tenant_id);
+    const user = await this.authService.register(dto.email, dto.password, dto.tenant_id);
+    const { passwordEncrypted, ...result } = user;
+    const tokenResponse = await this.authService.login(user);
+    return {
+      user: result,
+      access_token: tokenResponse.access_token,
+    };
   }
 
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Request() req) {
-    return this.authService.login(req.user);
+    const result = await this.authService.login(req.user);
+    return {
+      user: result.user,
+      access_token: result.access_token,
+    };
   }
 }

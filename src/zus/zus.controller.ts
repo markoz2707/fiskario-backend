@@ -11,9 +11,12 @@ import {
   Request,
   HttpStatus,
   HttpCode,
+  HttpException,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ZusService } from './zus.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateZUSEmployeeDto, UpdateZUSEmployeeDto } from './dto/zus-employee.dto';
 import { CreateZUSRegistrationDto, UpdateZUSRegistrationDto } from './dto/zus-registration.dto';
 import { CreateZUSReportDto, UpdateZUSReportDto } from './dto/zus-report.dto';
@@ -21,7 +24,10 @@ import { CreateZUSReportDto, UpdateZUSReportDto } from './dto/zus-report.dto';
 @Controller('zus')
 @UseGuards(JwtAuthGuard)
 export class ZusController {
-  constructor(private readonly zusService: ZusService) {}
+  constructor(
+    private readonly zusService: ZusService,
+    private readonly prisma: PrismaService
+  ) {}
 
   // Employee Management Endpoints
   @Post('employees')
@@ -148,5 +154,87 @@ export class ZusController {
       period,
       reportDate: new Date().toISOString(),
     });
+  }
+
+  // Enhanced Annual Summary
+  @Post('annual-summary')
+  async generateAnnualSummary(@Request() req, @Body() body: { year: number }) {
+    try {
+      const { year } = body;
+      const summary = await this.zusService.generateAnnualZUSSummary(
+        req.user.tenant_id,
+        req.user.company_id,
+        year
+      );
+
+      return {
+        success: true,
+        data: summary,
+        message: `Annual ZUS summary generated for year ${year}`
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to generate annual ZUS summary',
+          error: error.name
+        },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  // Generate ZUS XML declaration
+  @Post('generate-xml')
+  async generateZUSXML(@Request() req, @Body() body: { reportId: string, formType: string }) {
+    try {
+      const { reportId, formType } = body;
+
+      const report = await this.prisma.zUSReport.findFirst({
+        where: {
+          id: reportId,
+          tenant_id: req.user.tenant_id
+        }
+      });
+
+      if (!report) {
+        throw new NotFoundException('ZUS report not found');
+      }
+
+      // Get company info
+      const company = await this.getCompanyInfo(req.user.tenant_id, req.user.company_id);
+
+      const xmlContent = this.zusService.generateZUSXML(report.data, company, formType);
+
+      return {
+        success: true,
+        data: {
+          xmlContent,
+          formType,
+          period: report.period,
+          fileName: `${formType}_${report.period}_${company.nip}.xml`
+        },
+        message: `ZUS XML generated successfully for ${formType}`
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to generate ZUS XML',
+          error: error.name
+        },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  private async getCompanyInfo(tenantId: string, companyId: string) {
+    // This would typically use a CompanyService
+    return {
+      nip: '1234567890',
+      name: 'Company Name',
+      regon: '',
+      establishmentDate: ''
+    };
   }
 }

@@ -283,4 +283,90 @@ export class ZusService {
       },
     };
   }
+
+  // Enhanced Annual Summary for ZUS declarations
+  async generateAnnualZUSSummary(tenantId: string, companyId: string, year: number) {
+    const startDate = new Date(year, 0, 1);
+    const endDate = new Date(year, 11, 31);
+
+    const reports = await this.prisma.zUSReport.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        reportDate: {
+          gte: startDate,
+          lte: endDate
+        }
+      },
+      include: {
+        contributions: {
+          include: { employee: true }
+        }
+      }
+    });
+
+    const totalContributions = reports.reduce((sum, report) => sum + report.totalContributions, 0);
+    const totalEmployees = Math.max(...reports.map(r => r.totalEmployees));
+
+    return {
+      year,
+      totalReports: reports.length,
+      totalContributions,
+      totalEmployees,
+      monthlyBreakdown: reports.map(report => ({
+        period: report.period,
+        totalContributions: report.totalContributions,
+        employeeCount: report.totalEmployees
+      })),
+      summary: {
+        averageMonthlyContributions: totalContributions / reports.length,
+        totalEmerytalna: reports.reduce((sum, r) => sum + (r.data as any)?.summary?.totalEmerytalnaEmployer || 0, 0),
+        totalRentowa: reports.reduce((sum, r) => sum + (r.data as any)?.summary?.totalRentowaEmployer || 0, 0),
+        totalChorobowa: reports.reduce((sum, r) => sum + (r.data as any)?.summary?.totalChorobowaEmployee || 0, 0),
+        totalWypadkowa: reports.reduce((sum, r) => sum + (r.data as any)?.summary?.totalWypadkowaEmployer || 0, 0),
+        totalZdrowotna: reports.reduce((sum, r) => sum + (r.data as any)?.summary?.totalZdrowotnaEmployee || 0, 0),
+        totalFP: reports.reduce((sum, r) => sum + (r.data as any)?.summary?.totalFPEmployee || 0, 0),
+        totalFGSP: reports.reduce((sum, r) => sum + (r.data as any)?.summary?.totalFGSPEmployee || 0, 0)
+      }
+    };
+  }
+
+  // Generate XML for ZUS declarations
+  generateZUSXML(reportData: any, companyInfo: any, formType: string): string {
+    const { period, summary, employees } = reportData;
+    const year = period.split('-')[0];
+    const month = period.split('-')[1];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Deklaracja xmlns="http://crd.gov.pl/xml/schematy/dziedzinowe/mf/2023/06/16/eD/DEKLARACJA/">
+  <Naglowek>
+    <KodFormularzaDekl>${formType}</KodFormularzaDekl>
+    <WariantFormularzaDekl>1</WariantFormularzaDekl>
+    <Version>${year}${month}01</Version>
+    <DataWytworzeniaDekl>${new Date().toISOString().split('T')[0]}</DataWytworzeniaDekl>
+    <NazwaSystemu>Fiskario</NazwaSystemu>
+  </Naglowek>
+  <Podmiot1>
+    <NIP>${companyInfo.nip}</NIP>
+    <PelnaNazwa>${companyInfo.name}</PelnaNazwa>
+    <REGON>${companyInfo.regon || ''}</REGON>
+    <DataPowstania>${companyInfo.establishmentDate || ''}</DataPowstania>
+  </Podmiot1>
+  <PozycjeSzczegolowe>
+    <P_1>${summary.totalEmployees}</P_1>
+    <P_2>${Math.round(summary.totalEmerytalnaEmployer)}</P_2>
+    <P_3>${Math.round(summary.totalEmerytalnaEmployee)}</P_3>
+    <P_4>${Math.round(summary.totalRentowaEmployer)}</P_4>
+    <P_5>${Math.round(summary.totalRentowaEmployee)}</P_5>
+    <P_6>${Math.round(summary.totalChorobowaEmployee)}</P_6>
+    <P_7>${Math.round(summary.totalWypadkowaEmployer)}</P_7>
+    <P_8>${Math.round(summary.totalZdrowotnaEmployee)}</P_8>
+    <P_9>${Math.round(summary.totalFPEmployee)}</P_9>
+    <P_10>${Math.round(summary.totalFGSPEmployee)}</P_10>
+    <P_11>${Math.round(summary.totalContributions)}</P_11>
+  </PozycjeSzczegolowe>
+</Deklaracja>`;
+
+    return xml;
+  }
 }

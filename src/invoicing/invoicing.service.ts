@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { KsefService } from '../ksef/ksef.service';
+import { BuyersService } from './buyers.service';
+import { TaxRulesService } from '../tax-rules/tax-rules.service';
 import PDFDocument from 'pdfkit';
 import * as fs from 'fs';
 import * as path from 'path';
+import { MobileTaxCalculationDto, MobileTaxCalculationResponseDto } from '../tax-rules/dto/mobile-tax-calculation.dto';
 
 @Injectable()
 export class InvoicingService {
@@ -12,6 +15,8 @@ export class InvoicingService {
   constructor(
     private prisma: PrismaService,
     private ksefService: KsefService,
+    private buyersService: BuyersService,
+    private taxRulesService: TaxRulesService,
   ) {}
 
   async createInvoice(tenant_id: string, data: any) {
@@ -25,18 +30,46 @@ export class InvoicingService {
     // Calculate totals
     const { totalNet, totalVat, totalGross } = this.calculateTotals(data.items);
 
+    // Create or find buyer
+    let buyer_id: string | null = null;
+    if (data.buyerName) {
+      // Try to find existing buyer by NIP first
+      if (data.buyerNip) {
+        const existingBuyers = await this.buyersService.findBuyersByNip(tenant_id, data.buyerNip);
+        if (existingBuyers.length > 0) {
+          buyer_id = existingBuyers[0].id;
+        }
+      }
+
+      // If no existing buyer found, create a new one
+      if (!buyer_id) {
+        const newBuyer = await this.buyersService.createBuyer(tenant_id, {
+          name: data.buyerName,
+          nip: data.buyerNip,
+          address: data.buyerAddress,
+          city: data.buyerCity,
+          postalCode: data.buyerPostalCode,
+          country: data.buyerCountry || 'PL',
+          email: data.buyerEmail,
+          phone: data.buyerPhone,
+          website: data.buyerWebsite,
+          notes: data.buyerNotes,
+          isActive: true,
+        });
+        buyer_id = newBuyer.id;
+      }
+    }
+
     // Create invoice
     const invoice = await this.prisma.invoice.create({
       data: {
         tenant_id,
         company_id: data.company_id,
+        buyer_id,
         number,
         series: data.series,
         date: new Date(data.date),
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
-        buyerName: data.buyerName,
-        buyerNip: data.buyerNip,
-        buyerAddress: data.buyerAddress,
         totalNet,
         totalVat,
         totalGross,
@@ -53,7 +86,10 @@ export class InvoicingService {
           })),
         },
       },
-      include: { items: true },
+      include: {
+        items: true,
+        buyer: true
+      },
     });
 
     // Generate PDF
@@ -181,9 +217,9 @@ export class InvoicingService {
       sellerName: 'Your Company Name', // TODO: Get from company data
       sellerNip: '1234567890', // TODO: Get from company data
       sellerAddress: 'Company Address', // TODO: Get from company data
-      buyerName: invoice.buyerName,
-      buyerNip: invoice.buyerNip || '',
-      buyerAddress: invoice.buyerAddress || '',
+      buyerName: invoice.buyer?.name || '',
+      buyerNip: invoice.buyer?.nip || '',
+      buyerAddress: invoice.buyer?.address || '',
       items: invoice.items.map(item => ({
         name: item.description,
         quantity: item.quantity,
@@ -199,5 +235,142 @@ export class InvoicingService {
       totalGross: invoice.totalGross,
       paymentMethod: 'przelew',
     };
+  }
+
+  // Mobile-specific methods
+  async calculateMobileInvoice(tenant_id: string, calculationDto: MobileTaxCalculationDto): Promise<MobileTaxCalculationResponseDto> {
+    // Use the tax rules service to calculate taxes
+    return await this.taxRulesService.calculateTaxForMobile(tenant_id, calculationDto);
+  }
+
+  async previewMobileInvoice(tenant_id: string, calculationDto: MobileTaxCalculationDto): Promise<any> {
+    // Calculate the invoice totals
+    const taxCalculation = await this.calculateMobileInvoice(tenant_id, calculationDto);
+
+    // Get company information for invoice preview
+    const company = await this.prisma.company.findFirst({
+      where: { id: calculationDto.companyId, tenant_id },
+    });
+
+    if (!company) {
+      throw new Error(`Company with ID ${calculationDto.companyId} not found`);
+    }
+
+    // Create a preview response with formatted data for mobile
+    return {
+      success: true,
+      preview: {
+        company: {
+          name: company.name,
+          nip: company.nip,
+          address: company.address,
+        },
+        items: calculationDto.items.map(item => ({
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          vatRate: item.vatRate || 23,
+          netAmount: item.quantity * item.unitPrice,
+          vatAmount: (item.quantity * item.unitPrice) * ((item.vatRate || 23) / 100),
+          grossAmount: (item.quantity * item.unitPrice) * (1 + (item.vatRate || 23) / 100),
+        })),
+        totals: {
+          totalNet: taxCalculation.totalNet,
+          totalVat: taxCalculation.totalVat,
+          totalGross: taxCalculation.totalGross,
+        },
+        vatBreakdown: taxCalculation.vatBreakdown,
+        appliedRules: taxCalculation.appliedRules,
+        estimatedFileSize: Math.round(JSON.stringify(calculationDto).length * 0.7), // Rough estimate
+        processingTime: '2-3 seconds',
+      },
+    };
+  }
+
+  async getMobileInvoiceTemplates(tenant_id: string, companyId: string): Promise<any[]> {
+    // Get company tax settings for available templates
+    const companySettings = await this.prisma.companyTaxSettings.findMany({
+      where: { company_id: companyId },
+      include: { taxForm: true },
+    });
+
+    return companySettings.map(setting => ({
+      id: setting.taxForm.id,
+      name: setting.taxForm.name,
+      code: setting.taxForm.code,
+      description: setting.taxForm.description,
+      category: setting.taxForm.category,
+      isSelected: setting.isSelected,
+      settings: setting.settings,
+      fields: this.generateTemplateFields(setting.taxForm),
+    }));
+  }
+
+  async validateMobileInvoice(tenant_id: string, calculationDto: MobileTaxCalculationDto): Promise<{ valid: boolean; errors: string[]; warnings: string[] }> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Basic validation
+    if (!calculationDto.companyId) {
+      errors.push('Company ID is required');
+    }
+
+    if (!calculationDto.items || calculationDto.items.length === 0) {
+      errors.push('At least one item is required');
+    } else {
+      calculationDto.items.forEach((item, index) => {
+        if (!item.description?.trim()) {
+          errors.push(`Item ${index + 1}: Description is required`);
+        }
+        if (!item.quantity || item.quantity <= 0) {
+          errors.push(`Item ${index + 1}: Quantity must be greater than 0`);
+        }
+        if (!item.unitPrice || item.unitPrice < 0) {
+          errors.push(`Item ${index + 1}: Unit price must be greater than or equal to 0`);
+        }
+        if (item.vatRate !== undefined && (item.vatRate < 0 || item.vatRate > 100)) {
+          errors.push(`Item ${index + 1}: VAT rate must be between 0 and 100`);
+        }
+      });
+    }
+
+    // Check for potential issues
+    const highValueItems = calculationDto.items.filter(item => (item.quantity * item.unitPrice) > 10000);
+    if (highValueItems.length > 0) {
+      warnings.push(`${highValueItems.length} high-value item(s) detected - please verify amounts`);
+    }
+
+    const zeroVatItems = calculationDto.items.filter(item => item.vatRate === 0);
+    if (zeroVatItems.length > 0) {
+      warnings.push(`${zeroVatItems.length} zero-VAT item(s) - ensure proper VAT exemption justification`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+    };
+  }
+
+  private generateTemplateFields(taxForm: any): any[] {
+    // Generate mobile-friendly field definitions based on tax form
+    const baseFields = [
+      { name: 'invoiceNumber', type: 'text', required: true, label: 'Invoice Number' },
+      { name: 'date', type: 'date', required: true, label: 'Invoice Date' },
+      { name: 'dueDate', type: 'date', required: false, label: 'Due Date' },
+      { name: 'buyerName', type: 'text', required: true, label: 'Buyer Name' },
+      { name: 'buyerNip', type: 'text', required: false, label: 'Buyer NIP' },
+      { name: 'buyerAddress', type: 'textarea', required: false, label: 'Buyer Address' },
+    ];
+
+    // Add tax form specific fields
+    if (taxForm.code === 'VAT') {
+      baseFields.push(
+        { name: 'vatPayer', type: 'boolean', required: false, label: 'VAT Payer' },
+        { name: 'gtuCodes', type: 'multiselect', required: false, label: 'GTU Codes' },
+      );
+    }
+
+    return baseFields;
   }
 }

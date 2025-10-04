@@ -164,7 +164,7 @@ export class PLReportService {
           in: ['issued', 'sent'],
         },
         // Assuming purchase invoices are identified by buyer being the company
-        buyerNip: {
+        buyer_id: {
           not: null, // This is a simplification - in reality you'd need better logic
         },
       },
@@ -211,7 +211,7 @@ export class PLReportService {
       },
     });
 
-    const totalCosts = (purchaseInvoices._sum.totalGross || 0);
+    const totalCosts = (purchaseInvoices._sum?.totalGross || 0);
     const materials = (vatPurchases._sum.netAmount || 0);
     const services = 0; // Placeholder for service costs
     const salaries = this.calculateTotalZUSContributions(zusContributions);

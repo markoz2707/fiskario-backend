@@ -132,6 +132,9 @@ export class ReceivablesPayablesReportService {
         // Only include invoices that are not yet paid (simplified logic)
         // In reality, you'd track payment status separately
       },
+      include: {
+        buyer: true,
+      },
       orderBy: { dueDate: 'asc' },
     });
 
@@ -149,8 +152,8 @@ export class ReceivablesPayablesReportService {
         type: 'receivable',
         invoiceId: invoice.id,
         invoiceNumber: `${invoice.series}${invoice.number}`,
-        counterpartyName: invoice.buyerName,
-        counterpartyNIP: invoice.buyerNip || undefined,
+        counterpartyName: invoice.buyer?.name || 'Unknown Buyer',
+        counterpartyNIP: invoice.buyer?.nip || undefined,
         amount: invoice.totalGross,
         dueDate: invoice.dueDate,
         daysOverdue,
@@ -176,9 +179,12 @@ export class ReceivablesPayablesReportService {
           in: ['issued', 'sent'],
         },
         // Assuming purchase invoices are identified by the company being the buyer
-        buyerNip: {
+        buyer_id: {
           not: null,
         },
+      },
+      include: {
+        buyer: true,
       },
       orderBy: { dueDate: 'asc' },
     });
@@ -197,8 +203,8 @@ export class ReceivablesPayablesReportService {
         type: 'payable',
         invoiceId: invoice.id,
         invoiceNumber: `${invoice.series}${invoice.number}`,
-        counterpartyName: invoice.buyerName,
-        counterpartyNIP: invoice.buyerNip || undefined,
+        counterpartyName: invoice.buyer?.name || 'Unknown Buyer',
+        counterpartyNIP: invoice.buyer?.nip || undefined,
         amount: invoice.totalGross,
         dueDate: invoice.dueDate,
         daysOverdue,

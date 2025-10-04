@@ -46,27 +46,61 @@ model Permission {
 }
 
 model Company {
-     id        String       @id @default(cuid())
-     tenant_id String       @unique
-     name      String
-     nip       String?      // Polish tax number
-     nipEncrypted String?   // Encrypted NIP field
-     address   String?
-     taxForm   String?      // individual, partnership, corporation
-     vatPayer  Boolean      @default(false)
-     invoices  Invoice[]
-     declarations Declaration[]
-     zusSubmissions ZUSSubmission[]
-     vatRegisters VATRegister[]
-     taxCalculations TaxCalculation[]
-     auditLogs AuditLog[]
-     zusEmployees ZUSEmployee[]
-     zusRegistrations ZUSRegistration[]
-     zusReports ZUSReport[]
-     zusContributions ZUSContribution[]
-     dpiaDocuments DPIADocument[]
+      id        String       @id @default(cuid())
+      tenant_id String
+      name      String
+      nip       String?      // Polish tax number
+      nipEncrypted String?   // Encrypted NIP field
+      regon     String?      // Polish business registry number
+      address   String?
+      taxOffice String?      // Tax office name
+      vatStatus String?      // VAT status (active, inactive, etc.)
+      isActive  Boolean      @default(true)
+      taxForm   String?      // individual, partnership, corporation
+      vatPayer  Boolean      @default(false)
+      invoices  Invoice[]
+      declarations Declaration[]
+      zusSubmissions ZUSSubmission[]
+      vatRegisters VATRegister[]
+      taxCalculations TaxCalculation[]
+      auditLogs AuditLog[]
+      zusEmployees ZUSEmployee[]
+      zusRegistrations ZUSRegistration[]
+      zusReports ZUSReport[]
+      zusContributions ZUSContribution[]
+      dpiaDocuments DPIADocument[]
+      taxSettings CompanyTaxSettings[]
+      digitalCertificates DigitalCertificate[]
+      signatureRecords SignatureRecord[]
+      profilZaufanyProfiles ProfilZaufanyProfile[]
 
-     @@index([tenant_id])
+      @@index([tenant_id])
+ }
+
+model Buyer {
+  id            String   @id @default(cuid())
+  tenant_id     String
+  name          String
+  nip           String?  // Polish tax number
+  nipEncrypted  String?  // Encrypted NIP field
+  address       String?
+  city          String?
+  postalCode    String?
+  country       String   @default("PL")
+  email         String?
+  phone         String?
+  website       String?
+  notes         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  invoices      Invoice[]
+
+  @@index([tenant_id])
+  @@index([nip])
+  @@index([isActive])
 }
 
 model Invoice {
@@ -74,13 +108,12 @@ model Invoice {
   tenant_id     String
   company_id    String
   company       Company  @relation(fields: [company_id], references: [id])
+  buyer_id      String?
+  buyer         Buyer?   @relation(fields: [buyer_id], references: [id])
   number        String
   series        String
   date          DateTime
   dueDate       DateTime?
-  buyerName     String
-  buyerNip      String?
-  buyerAddress  String?
   items         InvoiceItem[]
   totalNet      Float
   totalVat      Float
@@ -92,6 +125,7 @@ model Invoice {
   updatedAt     DateTime @updatedAt
 
   @@index([tenant_id])
+  @@index([buyer_id])
 }
 
 model InvoiceItem {
@@ -788,26 +822,211 @@ model PrivacySettings {
 }
 
 model DataBreachRecord {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    type              String   // confidentiality, integrity, availability
-    severity          String   // low, medium, high, critical
-    description       String
-    affectedDataSubjects Int
-    affectedDataCategories String[]
-    reportedDate      DateTime
-    detectionDate     DateTime
-    containmentDate   DateTime?
-    notificationDate  DateTime?
-    supervisoryAuthorityNotified Boolean @default(false)
-    dataSubjectsNotified Boolean @default(false)
-    mitigationSteps   Json?
-    status            String   // investigating, contained, notified, closed
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+     id                String   @id @default(cuid())
+     tenant_id         String
+     type              String   // confidentiality, integrity, availability
+     severity          String   // low, medium, high, critical
+     description       String
+     affectedDataSubjects Int
+     affectedDataCategories String[]
+     reportedDate      DateTime
+     detectionDate     DateTime
+     containmentDate   DateTime?
+     notificationDate  DateTime?
+     supervisoryAuthorityNotified Boolean @default(false)
+     dataSubjectsNotified Boolean @default(false)
+     mitigationSteps   Json?
+     status            String   // investigating, contained, notified, closed
+     createdAt         DateTime @default(now())
+     updatedAt         DateTime @updatedAt
 
-    @@index([tenant_id])
-    @@index([type])
-    @@index([severity])
-    @@index([reportedDate])
-}
+     @@index([tenant_id])
+     @@index([type])
+     @@index([severity])
+     @@index([reportedDate])
+ }
+
+model TaxForm {
+     id                String   @id @default(cuid())
+     name              String   // PIT skalowy, PIT liniowy, Ryczałt, CIT, VAT
+     code              String   @unique // PIT_SCALES, PIT_LINEAR, PIT_LUMP_SUM, CIT, VAT
+     description       String
+     category          String   // income_tax, corporate_tax, value_added_tax
+     isActive          Boolean  @default(true)
+     validFrom         DateTime
+     validTo           DateTime?
+     parameters        Json     // Form-specific parameters (rates, thresholds, etc.)
+     createdAt         DateTime @default(now())
+     updatedAt         DateTime @updatedAt
+
+     rules             TaxRule[]
+     companySettings   CompanyTaxSettings[]
+
+     @@index([category])
+     @@index([isActive])
+ }
+
+model TaxRule {
+     id                String   @id @default(cuid())
+     taxFormId         String
+     taxForm           TaxForm  @relation(fields: [taxFormId], references: [id], onDelete: Cascade)
+     name              String   // Stawka podstawowa 18%, Stawka 32%, etc.
+     ruleType          String   // rate, threshold, exemption, deduction
+     conditions        Json     // Conditions for when this rule applies
+     calculationMethod String   // percentage, fixed_amount, formula
+     value             Float    // The actual rate or amount
+     minBase           Float?   // Minimum base for this rule to apply
+     maxBase           Float?   // Maximum base for this rule to apply
+     isDefault         Boolean  @default(false)
+     priority          Int      @default(0) // For rules with same conditions
+     isActive          Boolean  @default(true)
+     validFrom         DateTime
+     validTo           DateTime?
+     createdAt         DateTime @default(now())
+     updatedAt         DateTime @updatedAt
+
+     @@index([taxFormId])
+     @@index([ruleType])
+     @@index([isActive])
+ }
+
+model CompanyTaxSettings {
+      id                String   @id @default(cuid())
+      tenant_id         String
+      company_id        String
+      company           Company  @relation(fields: [company_id], references: [id])
+      taxFormId         String
+      taxForm           TaxForm  @relation(fields: [taxFormId], references: [id])
+      isSelected        Boolean  @default(false)
+      settings          Json     // Company-specific settings for this tax form
+      activatedAt       DateTime?
+      deactivatedAt     DateTime?
+      notes             String?
+      createdAt         DateTime @default(now())
+      updatedAt         DateTime @updatedAt
+
+      @@unique([tenant_id, company_id, taxFormId])
+      @@index([tenant_id])
+      @@index([company_id])
+      @@index([taxFormId])
+      @@index([isSelected])
+  }
+
+model DigitalCertificate {
+      id                String   @id @default(cuid())
+      tenant_id         String
+      company_id        String
+      company           Company  @relation(fields: [company_id], references: [id])
+      certificateType   String   // profil_zaufany, qualified, advanced
+      serialNumber      String
+      issuer            String
+      subject           String
+      validFrom         DateTime
+      validTo           DateTime
+      status            String   @default("active") // active, expired, revoked, suspended
+      certificateData   String   // PEM encoded certificate
+      privateKey        String?  // Encrypted PEM encoded private key
+      keyAlgorithm      String   // RSA, ECDSA
+      keySize           Int      // 2048, 4096, etc.
+      trustedServiceProvider String?
+      userIdentifier    String   // PESEL for individuals, NIP for companies
+      isDefault         Boolean  @default(false)
+      renewalReminderDays Int    @default(30)
+      lastValidationAt  DateTime?
+      validationStatus  String?  // valid, invalid, unknown
+      createdAt         DateTime @default(now())
+      updatedAt         DateTime @updatedAt
+
+      signatureRecords  SignatureRecord[]
+
+      @@index([tenant_id])
+      @@index([company_id])
+      @@index([certificateType])
+      @@index([status])
+      @@index([userIdentifier])
+      @@index([validTo])
+      @@index([isDefault])
+  }
+
+model SignatureRecord {
+      id                String   @id @default(cuid())
+      tenant_id         String
+      company_id        String
+      company           Company  @relation(fields: [company_id], references: [id])
+      certificate_id    String
+      certificate       DigitalCertificate @relation(fields: [certificate_id], references: [id])
+      documentId        String   // ID of the signed document (invoice, declaration, etc.)
+      documentType      String   // invoice, declaration, zus_report, etc.
+      signatureType     String   // profil_zaufany, qes, advanced
+      signatureFormat   String   // xades, pades, cades
+      signatureValue    String   // Base64 encoded signature
+      signedContent     String   // Original document content hash
+      signedDocument    String?  // Signed document (XML, PDF, etc.)
+      timestamp         DateTime?
+      tspProvider       String?  // Time Stamping Authority
+      validationStatus  String   @default("pending") // pending, valid, invalid
+      validationErrors  String?
+      signerName        String
+      signerIdentifier  String   // PESEL or NIP
+      signatureAlgorithm String
+      hashAlgorithm     String
+      isLongTermValid   Boolean  @default(false) // For LTV signatures
+      createdAt         DateTime @default(now())
+      updatedAt         DateTime @updatedAt
+
+      @@index([tenant_id])
+      @@index([company_id])
+      @@index([certificate_id])
+      @@index([documentId])
+      @@index([documentType])
+      @@index([signatureType])
+      @@index([validationStatus])
+      @@index([createdAt])
+  }
+
+model ProfilZaufanyProfile {
+      id                String   @id @default(cuid())
+      tenant_id         String
+      company_id        String
+      company           Company  @relation(fields: [company_id], references: [id])
+      profileId         String   @unique
+      userId            String
+      firstName         String
+      lastName          String
+      pesel             String   @unique
+      peselEncrypted    String   // Encrypted PESEL field
+      email             String
+      phoneNumber       String?
+      authenticationLevel String @default("basic") // basic, significant, high
+      accessToken       String?
+      refreshToken      String?
+      tokenExpiresAt    DateTime?
+      lastLoginAt       DateTime?
+      isActive          Boolean  @default(true)
+      createdAt         DateTime @default(now())
+      updatedAt         DateTime @updatedAt
+
+      @@index([tenant_id])
+      @@index([company_id])
+      @@index([pesel])
+      @@index([isActive])
+  }
+
+model EPUAPService {
+      id                String   @id @default(cuid())
+      serviceId         String   @unique
+      name              String
+      description       String
+      category          String   // tax, social_insurance, business_registration
+      isAvailable       Boolean  @default(true)
+      requiredAuthLevel String   @default("basic") // basic, significant, high
+      endpointUrl       String
+      documentationUrl  String?
+      estimatedTime     Int?     // Processing time in minutes
+      createdAt         DateTime @default(now())
+      updatedAt         DateTime @updatedAt
+
+      @@index([category])
+      @@index([isAvailable])
+      @@index([requiredAuthLevel])
+  }

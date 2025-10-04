@@ -66,50 +66,135 @@ export class DeadlineManagementService {
   private async calculateVATDeadlines(tenantId: string, companyId: string, now: Date): Promise<DeadlineInfo[]> {
     const deadlines: DeadlineInfo[] = [];
 
-    // Monthly VAT-7 deadline is 25th of the following month
-    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const vatDeadline = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 25);
+    // Get company tax settings to determine VAT filing frequency
+    const companyTaxSettings = await this.prisma.companyTaxSettings.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        taxForm: {
+          category: 'value_added_tax',
+        },
+        isSelected: true,
+      },
+      include: {
+        taxForm: true,
+      },
+    });
 
-    if (vatDeadline > now) {
-      const daysUntilDue = Math.ceil((vatDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const hasMonthlyVAT = companyTaxSettings.some(setting =>
+      setting.taxForm.code === 'VAT' && (setting.settings as any)?.filingFrequency === 'monthly'
+    );
+    const hasQuarterlyVAT = companyTaxSettings.some(setting =>
+      setting.taxForm.code === 'VAT' && (setting.settings as any)?.filingFrequency === 'quarterly'
+    );
 
-      deadlines.push({
-        id: `vat_monthly_${currentMonth.getFullYear()}_${currentMonth.getMonth() + 1}`,
-        type: 'vat',
-        name: 'VAT-7 (miesięczna)',
-        description: 'Miesięczna deklaracja VAT',
-        dueDate: vatDeadline,
-        period: `${currentMonth.getFullYear()}-${(currentMonth.getMonth() + 1).toString().padStart(2, '0')}`,
-        companyId,
-        tenantId,
-        status: daysUntilDue <= 0 ? 'overdue' : daysUntilDue <= 7 ? 'due' : 'upcoming',
-        daysUntilDue,
-        priority: 'high',
-      });
+    // JPK_V7M Monthly deadlines (25th of following month)
+    if (hasMonthlyVAT) {
+      const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const jpkV7MDeadline = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 25);
+
+      if (jpkV7MDeadline > now) {
+        const daysUntilDue = Math.ceil((jpkV7MDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+        deadlines.push({
+          id: `jpk_v7m_${currentMonth.getFullYear()}_${currentMonth.getMonth() + 1}`,
+          type: 'vat',
+          name: 'JPK_V7M',
+          description: 'Miesięczne Jednolite Pliki Kontrolne VAT (JPK_V7M)',
+          dueDate: jpkV7MDeadline,
+          period: `${currentMonth.getFullYear()}-${(currentMonth.getMonth() + 1).toString().padStart(2, '0')}`,
+          companyId,
+          tenantId,
+          status: daysUntilDue <= 0 ? 'overdue' : daysUntilDue <= 7 ? 'due' : 'upcoming',
+          daysUntilDue,
+          priority: 'high',
+        });
+      }
     }
 
-    // Quarterly VAT deadlines (25th of month following quarter end)
-    const currentQuarter = Math.floor(now.getMonth() / 3);
-    const quarterStart = new Date(now.getFullYear(), currentQuarter * 3, 1);
-    const quarterEnd = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0);
-    const quarterlyVATDeadline = new Date(quarterEnd.getFullYear(), quarterEnd.getMonth() + 1, 25);
+    // JPK_V7K Quarterly deadlines (25th of month following quarter end)
+    if (hasQuarterlyVAT) {
+      const currentQuarter = Math.floor(now.getMonth() / 3);
+      const quarterStart = new Date(now.getFullYear(), currentQuarter * 3, 1);
+      const quarterEnd = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0);
+      const jpkV7KDeadline = new Date(quarterEnd.getFullYear(), quarterEnd.getMonth() + 1, 25);
 
-    if (quarterlyVATDeadline > now) {
-      const daysUntilDue = Math.ceil((quarterlyVATDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      if (jpkV7KDeadline > now) {
+        const daysUntilDue = Math.ceil((jpkV7KDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-      deadlines.push({
-        id: `vat_quarterly_${quarterEnd.getFullYear()}_Q${currentQuarter + 1}`,
-        type: 'vat',
-        name: 'VAT-7K (kwartalna)',
-        description: 'Kwartalna deklaracja VAT',
-        dueDate: quarterlyVATDeadline,
-        period: `${quarterEnd.getFullYear()}-Q${currentQuarter + 1}`,
-        companyId,
-        tenantId,
-        status: daysUntilDue <= 0 ? 'overdue' : daysUntilDue <= 7 ? 'due' : 'upcoming',
-        daysUntilDue,
-        priority: 'high',
-      });
+        deadlines.push({
+          id: `jpk_v7k_${quarterEnd.getFullYear()}_Q${currentQuarter + 1}`,
+          type: 'vat',
+          name: 'JPK_V7K',
+          description: 'Kwartalne Jednolite Pliki Kontrolne VAT (JPK_V7K)',
+          dueDate: jpkV7KDeadline,
+          period: `${quarterEnd.getFullYear()}-Q${currentQuarter + 1}`,
+          companyId,
+          tenantId,
+          status: daysUntilDue <= 0 ? 'overdue' : daysUntilDue <= 7 ? 'due' : 'upcoming',
+          daysUntilDue,
+          priority: 'high',
+        });
+      }
+    }
+
+    // Calculate for next 12 months/4 quarters to ensure we don't miss upcoming deadlines
+    const futureDate = new Date(now.getTime() + (365 * 24 * 60 * 60 * 1000));
+
+    if (hasMonthlyVAT) {
+      for (let monthOffset = 1; monthOffset <= 12; monthOffset++) {
+        const targetMonth = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+        if (targetMonth > futureDate) break;
+
+        const jpkV7MDeadline = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 25);
+        if (jpkV7MDeadline > now) {
+          const daysUntilDue = Math.ceil((jpkV7MDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+          deadlines.push({
+            id: `jpk_v7m_${targetMonth.getFullYear()}_${targetMonth.getMonth() + 1}`,
+            type: 'vat',
+            name: 'JPK_V7M',
+            description: `JPK_V7M za ${targetMonth.getMonth() + 1}/${targetMonth.getFullYear()}`,
+            dueDate: jpkV7MDeadline,
+            period: `${targetMonth.getFullYear()}-${(targetMonth.getMonth() + 1).toString().padStart(2, '0')}`,
+            companyId,
+            tenantId,
+            status: daysUntilDue <= 0 ? 'overdue' : daysUntilDue <= 7 ? 'due' : 'upcoming',
+            daysUntilDue,
+            priority: 'high',
+          });
+        }
+      }
+    }
+
+    if (hasQuarterlyVAT) {
+      for (let quarterOffset = 1; quarterOffset <= 4; quarterOffset++) {
+        const targetQuarter = Math.floor((now.getMonth() + quarterOffset * 3) / 12);
+        const targetYear = now.getFullYear() + (targetQuarter > 0 ? 0 : 1);
+        const actualQuarter = ((Math.floor(now.getMonth() / 3) + quarterOffset) % 4) + 1;
+
+        const quarterEnd = new Date(targetYear, actualQuarter * 3, 0);
+        if (quarterEnd > futureDate) break;
+
+        const jpkV7KDeadline = new Date(quarterEnd.getFullYear(), quarterEnd.getMonth() + 1, 25);
+        if (jpkV7KDeadline > now) {
+          const daysUntilDue = Math.ceil((jpkV7KDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+          deadlines.push({
+            id: `jpk_v7k_${quarterEnd.getFullYear()}_Q${actualQuarter}`,
+            type: 'vat',
+            name: 'JPK_V7K',
+            description: `JPK_V7K za ${actualQuarter} kwartał ${quarterEnd.getFullYear()}`,
+            dueDate: jpkV7KDeadline,
+            period: `${quarterEnd.getFullYear()}-Q${actualQuarter}`,
+            companyId,
+            tenantId,
+            status: daysUntilDue <= 0 ? 'overdue' : daysUntilDue <= 7 ? 'due' : 'upcoming',
+            daysUntilDue,
+            priority: 'high',
+          });
+        }
+      }
     }
 
     return deadlines;
@@ -295,28 +380,37 @@ export class DeadlineManagementService {
 
   private async scheduleDeadlineRemindersForUser(deadline: DeadlineInfo, userId: string): Promise<void> {
     try {
+      // Get user/company specific reminder settings
+      const reminderSettings = await this.getReminderSettings(deadline.tenantId, deadline.companyId);
+
+      if (!reminderSettings.enabled) {
+        return; // Reminders disabled for this company
+      }
+
+      const reminderDays = reminderSettings.reminderDays || [7, 3, 1];
       const reminders: Partial<DeadlineReminder>[] = [];
 
-      // Schedule reminders based on deadline status and days until due
-      if (deadline.status === 'upcoming' && deadline.daysUntilDue <= 7) {
-        // Reminder 7 days before
-        const reminderDate = new Date(deadline.dueDate);
-        reminderDate.setDate(reminderDate.getDate() - 7);
+      // Schedule configurable reminders before deadline
+      for (const daysBefore of reminderDays) {
+        if (deadline.daysUntilDue >= daysBefore) {
+          const reminderDate = new Date(deadline.dueDate);
+          reminderDate.setDate(reminderDate.getDate() - daysBefore);
 
-        if (reminderDate > new Date()) {
-          reminders.push({
-            deadlineId: deadline.id,
-            userId,
-            tenantId: deadline.tenantId,
-            reminderType: 'upcoming',
-            scheduledFor: reminderDate,
-            sent: false,
-          });
+          if (reminderDate > new Date()) {
+            reminders.push({
+              deadlineId: deadline.id,
+              userId,
+              tenantId: deadline.tenantId,
+              reminderType: 'upcoming',
+              scheduledFor: reminderDate,
+              sent: false,
+            });
+          }
         }
       }
 
-      if (deadline.status === 'due' || (deadline.status === 'upcoming' && deadline.daysUntilDue <= 0)) {
-        // Reminder on due date
+      // Schedule reminder on due date (if enabled)
+      if (deadline.daysUntilDue >= 0) {
         reminders.push({
           deadlineId: deadline.id,
           userId,
@@ -327,22 +421,42 @@ export class DeadlineManagementService {
         });
       }
 
-      if (deadline.status === 'overdue') {
-        // Reminder 3 days after due date
-        const overdueReminderDate = new Date(deadline.dueDate);
-        overdueReminderDate.setDate(overdueReminderDate.getDate() + 3);
+      // Schedule overdue reminders (3 and 7 days after deadline)
+      if (deadline.status === 'overdue' || deadline.daysUntilDue < 0) {
+        const daysOverdue = Math.abs(deadline.daysUntilDue);
 
-        reminders.push({
-          deadlineId: deadline.id,
-          userId,
-          tenantId: deadline.tenantId,
-          reminderType: 'overdue',
-          scheduledFor: overdueReminderDate,
-          sent: false,
-        });
+        // Reminder 3 days after deadline
+        if (daysOverdue >= 3) {
+          const overdueReminderDate = new Date(deadline.dueDate);
+          overdueReminderDate.setDate(overdueReminderDate.getDate() + 3);
+
+          reminders.push({
+            deadlineId: deadline.id,
+            userId,
+            tenantId: deadline.tenantId,
+            reminderType: 'overdue',
+            scheduledFor: overdueReminderDate,
+            sent: false,
+          });
+        }
+
+        // Reminder 7 days after deadline
+        if (daysOverdue >= 7) {
+          const overdueReminderDate = new Date(deadline.dueDate);
+          overdueReminderDate.setDate(overdueReminderDate.getDate() + 7);
+
+          reminders.push({
+            deadlineId: deadline.id,
+            userId,
+            tenantId: deadline.tenantId,
+            reminderType: 'overdue',
+            scheduledFor: overdueReminderDate,
+            sent: false,
+          });
+        }
       }
 
-      // Store reminders in database (you might want to add a DeadlineReminder model)
+      // Store reminders in database
       for (const reminder of reminders) {
         // Check if reminder already exists
         const existingReminder = await this.prisma.deadlineReminder.findFirst({
@@ -350,6 +464,7 @@ export class DeadlineManagementService {
             deadlineId: reminder.deadlineId,
             user_id: reminder.userId,
             reminderType: reminder.reminderType,
+            scheduledFor: reminder.scheduledFor,
           },
         });
 
@@ -400,32 +515,54 @@ export class DeadlineManagementService {
         return;
       }
 
-      // Send notification based on reminder type
+      // Send notification based on reminder type and deadline type
       let templateName: string;
       let variables: Record<string, any>;
 
       switch (reminder.reminderType) {
         case 'upcoming':
-          templateName = 'vat_deadline_reminder'; // Generic template
-          variables = {
-            period: deadline.period,
-            dueDate: deadline.dueDate.toLocaleDateString('pl-PL'),
-          };
+          if (deadline.type === 'vat') {
+            templateName = 'jpk_deadline_reminder';
+            variables = {
+              declarationType: deadline.name,
+              period: this.formatPeriodDisplay(deadline.period),
+              dueDate: deadline.dueDate.toLocaleDateString('pl-PL'),
+              daysUntilDue: deadline.daysUntilDue,
+            };
+          } else {
+            templateName = 'deadline_reminder';
+            variables = {
+              declarationType: deadline.name,
+              period: this.formatPeriodDisplay(deadline.period),
+              dueDate: deadline.dueDate.toLocaleDateString('pl-PL'),
+              daysUntilDue: deadline.daysUntilDue,
+            };
+          }
           break;
         case 'due':
-          templateName = 'vat_deadline_reminder';
-          variables = {
-            period: deadline.period,
-            dueDate: deadline.dueDate.toLocaleDateString('pl-PL'),
-          };
+          if (deadline.type === 'vat') {
+            templateName = 'jpk_deadline_due';
+            variables = {
+              declarationType: deadline.name,
+              period: this.formatPeriodDisplay(deadline.period),
+              dueDate: deadline.dueDate.toLocaleDateString('pl-PL'),
+            };
+          } else {
+            templateName = 'deadline_due';
+            variables = {
+              declarationType: deadline.name,
+              period: this.formatPeriodDisplay(deadline.period),
+              dueDate: deadline.dueDate.toLocaleDateString('pl-PL'),
+            };
+          }
           break;
         case 'overdue':
-          templateName = 'invoice_overdue';
+          templateName = 'deadline_overdue';
           variables = {
-            invoiceNumber: deadline.name,
-            amount: deadline.amount || 0,
+            declarationType: deadline.name,
+            period: this.formatPeriodDisplay(deadline.period),
+            dueDate: deadline.dueDate.toLocaleDateString('pl-PL'),
             daysOverdue: Math.abs(deadline.daysUntilDue),
-            counterpartyName: 'Urząd Skarbowy',
           };
           break;
         default:
@@ -443,6 +580,7 @@ export class DeadlineManagementService {
           data: {
             deadlineId: deadline.id,
             reminderType: reminder.reminderType,
+            declarationType: deadline.type,
           },
         },
       );
@@ -450,13 +588,38 @@ export class DeadlineManagementService {
       // Mark reminder as sent
       await this.prisma.deadlineReminder.update({
         where: { id: reminder.id },
-        data: { sent: true },
+        data: {
+          sent: true,
+          sentAt: new Date(),
+        },
       });
 
       this.logger.log(`Sent ${reminder.reminderType} reminder for deadline ${deadline.id} to user ${reminder.userId}`);
     } catch (error) {
       this.logger.error(`Error sending deadline reminder: ${error.message}`, error.stack);
     }
+  }
+
+  private formatPeriodDisplay(period: string): string {
+    // Convert YYYY-MM to readable format for monthly periods
+    if (period.includes('-') && !period.includes('Q')) {
+      const [year, month] = period.split('-');
+      const monthNames = [
+        'styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec',
+        'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień'
+      ];
+      return `${monthNames[parseInt(month) - 1]} ${year}`;
+    }
+
+    // Convert YYYY-QX to readable format for quarterly periods
+    if (period.includes('-Q')) {
+      const [year, quarter] = period.split('-Q');
+      const quarterNames = ['pierwszy', 'drugi', 'trzeci', 'czwarty'];
+      const quarterIndex = parseInt(quarter) - 1;
+      return `${quarterNames[quarterIndex]} kwartał ${year}`;
+    }
+
+    return period;
   }
 
   private async getDeadlineById(deadlineId: string): Promise<DeadlineInfo | null> {
@@ -514,6 +677,236 @@ export class DeadlineManagementService {
       });
     } catch (error) {
       this.logger.error(`Error marking deadline as completed: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  async getReminderSettings(tenantId: string, companyId: string): Promise<{
+    enabled: boolean;
+    reminderDays: number[];
+    notificationMethods: string[];
+  }> {
+    try {
+      // Try to get settings from database first
+      // For now, return default settings with Polish tax compliance defaults
+      return {
+        enabled: true,
+        reminderDays: [7, 3, 1], // 7 days, 3 days, 1 day before deadline
+        notificationMethods: ['push', 'email'],
+      };
+    } catch (error) {
+      this.logger.error(`Error getting reminder settings: ${error.message}`, error.stack);
+      // Return safe defaults
+      return {
+        enabled: true,
+        reminderDays: [7, 3, 1],
+        notificationMethods: ['push'],
+      };
+    }
+  }
+
+  async updateReminderSettings(
+    tenantId: string,
+    companyId: string,
+    settings: {
+      enabled: boolean;
+      reminderDays: number[];
+      notificationMethods: string[];
+    }
+  ): Promise<void> {
+    try {
+      this.logger.log(`Updating reminder settings for company ${companyId}:`, settings);
+
+      // In a real implementation, you would store these settings in the database
+      // For now, just log the action
+
+      // You could extend the Company model to include reminderSettings JSON field
+      // await this.prisma.company.update({
+      //   where: { tenant_id: tenantId, id: companyId },
+      //   data: { reminderSettings: settings }
+      // });
+    } catch (error) {
+      this.logger.error(`Error updating reminder settings: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  async generateComplianceReport(
+    tenantId: string,
+    companyId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<any> {
+    try {
+      this.logger.log(`Generating compliance report for company ${companyId} from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+
+      // Get all deadlines for the period
+      const allDeadlines = await this.calculateDeadlines(tenantId, companyId);
+
+      // Filter deadlines within the reporting period
+      const periodDeadlines = allDeadlines.filter(deadline =>
+        deadline.dueDate >= startDate && deadline.dueDate <= endDate
+      );
+
+      // Get completion records for the period
+      const completionRecords = await this.prisma.deadlineCompletion.findMany({
+        where: {
+          tenant_id: tenantId,
+          deadlineId: {
+            in: periodDeadlines.map(d => d.id),
+          },
+        },
+      });
+
+      // Calculate compliance metrics
+      const totalDeadlines = periodDeadlines.length;
+      const completedDeadlines = completionRecords.length;
+      const overdueDeadlines = periodDeadlines.filter(d => d.status === 'overdue').length;
+      const onTimeCompletions = completionRecords.filter(completion => {
+        const deadline = periodDeadlines.find(d => d.id === completion.deadlineId);
+        return deadline && completion.completedAt <= deadline.dueDate;
+      }).length;
+
+      const complianceRate = totalDeadlines > 0 ? (completedDeadlines / totalDeadlines) * 100 : 0;
+      const onTimeRate = completedDeadlines > 0 ? (onTimeCompletions / completedDeadlines) * 100 : 0;
+
+      // Group by deadline type
+      const deadlinesByType = periodDeadlines.reduce((acc, deadline) => {
+        if (!acc[deadline.type]) {
+          acc[deadline.type] = { total: 0, completed: 0, overdue: 0 };
+        }
+        acc[deadline.type].total++;
+        if (deadline.status === 'overdue') {
+          acc[deadline.type].overdue++;
+        }
+        if (completionRecords.some(c => c.deadlineId === deadline.id)) {
+          acc[deadline.type].completed++;
+        }
+        return acc;
+      }, {} as Record<string, { total: number; completed: number; overdue: number; }>);
+
+      // Generate trends (comparing with previous period)
+      const previousPeriodStart = new Date(startDate);
+      const previousPeriodEnd = new Date(endDate);
+      const periodLength = endDate.getTime() - startDate.getTime();
+      previousPeriodStart.setTime(previousPeriodStart.getTime() - periodLength);
+
+      const previousPeriodDeadlines = await this.calculateDeadlines(tenantId, companyId);
+      const previousPeriodFiltered = previousPeriodDeadlines.filter(deadline =>
+        deadline.dueDate >= previousPeriodStart && deadline.dueDate <= previousPeriodEnd
+      );
+
+      const previousCompletions = await this.prisma.deadlineCompletion.count({
+        where: {
+          tenant_id: tenantId,
+          completedAt: {
+            gte: previousPeriodStart,
+            lte: previousPeriodEnd,
+          },
+        },
+      });
+
+      const previousComplianceRate = previousPeriodFiltered.length > 0 ?
+        (previousCompletions / previousPeriodFiltered.length) * 100 : 0;
+
+      const trend = complianceRate - previousComplianceRate;
+
+      return {
+        period: {
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+        },
+        summary: {
+          totalDeadlines,
+          completedDeadlines,
+          overdueDeadlines,
+          complianceRate: Math.round(complianceRate * 100) / 100,
+          onTimeRate: Math.round(onTimeRate * 100) / 100,
+          trend: Math.round(trend * 100) / 100,
+        },
+        breakdownByType: deadlinesByType,
+        recommendations: this.generateComplianceRecommendations(
+          complianceRate,
+          onTimeRate,
+          overdueDeadlines,
+          deadlinesByType
+        ),
+        generatedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.error(`Error generating compliance report: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  private generateComplianceRecommendations(
+    complianceRate: number,
+    onTimeRate: number,
+    overdueDeadlines: number,
+    deadlinesByType: Record<string, any>
+  ): string[] {
+    const recommendations: string[] = [];
+
+    if (complianceRate < 80) {
+      recommendations.push('Niski wskaźnik zgodności - rozważ zwiększenie częstotliwości przypomnień');
+    }
+
+    if (onTimeRate < 70) {
+      recommendations.push('Niski wskaźnik terminowości - rozważ wcześniejsze wysyłanie przypomnień');
+    }
+
+    if (overdueDeadlines > 0) {
+      recommendations.push(`${overdueDeadlines} przeterminowanych terminów wymaga natychmiastowej uwagi`);
+    }
+
+    // Check for problematic deadline types
+    Object.entries(deadlinesByType).forEach(([type, stats]) => {
+      const typeCompliance = (stats.completed / stats.total) * 100;
+      if (typeCompliance < 50) {
+        const typeNames = {
+          vat: 'VAT',
+          zus: 'ZUS',
+          pit: 'PIT',
+          cit: 'CIT',
+          ksef: 'KSeF',
+        };
+        recommendations.push(`Niska zgodność dla deklaracji ${typeNames[type] || type} - rozważ dodatkowe szkolenia lub automatyzację`);
+      }
+    });
+
+    if (recommendations.length === 0) {
+      recommendations.push('Doskonała zgodność z terminami - kontynuuj obecne praktyki');
+    }
+
+    return recommendations;
+  }
+
+  async getDeadlineHistory(
+    tenantId: string,
+    companyId: string,
+    limit: number = 50
+  ): Promise<any[]> {
+    try {
+      // Get recent completion records with deadline information
+      const completionRecords = await this.prisma.deadlineCompletion.findMany({
+        where: {
+          tenant_id: tenantId,
+        },
+        orderBy: {
+          completedAt: 'desc',
+        },
+        take: limit,
+      });
+
+      return completionRecords.map(record => ({
+        id: record.id,
+        deadlineId: record.deadlineId,
+        completedAt: record.completedAt,
+        completedBy: record.user_id,
+        // Additional deadline info would be populated from a deadlines table
+      }));
+    } catch (error) {
+      this.logger.error(`Error getting deadline history: ${error.message}`, error.stack);
       throw error;
     }
   }

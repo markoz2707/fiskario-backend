@@ -49,6 +49,10 @@ describe('AuthController', () => {
     it('should return access token when login is successful', async () => {
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+         user: {
+           email: 'test@example.com',
+           tenant_id: 'tenant-123',
+         },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);
@@ -72,6 +76,10 @@ describe('AuthController', () => {
 
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+         user: {
+           email: 'test@example.com',
+           tenant_id: 'tenant-123',
+         },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);
@@ -93,6 +101,10 @@ describe('AuthController', () => {
 
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+         user: {
+           email: 'test@example.com',
+           tenant_id: 'tenant-123',
+         },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);
@@ -114,6 +126,10 @@ describe('AuthController', () => {
 
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+        user: {
+          email: 'test@example.com',
+          tenant_id: 'tenant-123',
+        },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);
@@ -165,6 +181,10 @@ describe('AuthController', () => {
 
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+        user: {
+          email: 'test@example.com',
+          tenant_id: 'tenant-123',
+        },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);
@@ -190,6 +210,10 @@ describe('AuthController', () => {
 
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+         user: {
+           email: 'test@example.com',
+           tenant_id: 'tenant-123',
+         },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);
@@ -214,6 +238,10 @@ describe('AuthController', () => {
 
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+         user: {
+           email: 'test@example.com',
+           tenant_id: 'tenant-123',
+         },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);
@@ -229,6 +257,10 @@ describe('AuthController', () => {
     it('should handle concurrent login requests', async () => {
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+         user: {
+           email: 'test@example.com',
+           tenant_id: 'tenant-123',
+         },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);
@@ -249,6 +281,10 @@ describe('AuthController', () => {
     it('should handle rapid successive login attempts', async () => {
       const mockLoginResult = {
         access_token: 'jwt-token-here',
+         user: {
+           email: 'test@example.com',
+           tenant_id: 'tenant-123',
+         },
       };
 
       mockAuthService.login.mockResolvedValue(mockLoginResult);

@@ -23,16 +23,26 @@ async function main() {
   console.log('✅ Created admin user:', adminUser.email);
 
   // Create test company
-  const testCompany = await prisma.company.upsert({
-    where: { tenant_id: 'default-tenant' },
-    update: {},
-    create: {
+  const existingCompany = await prisma.company.findFirst({
+    where: {
       tenant_id: 'default-tenant',
-      name: 'Fiskario Test Company',
-      nip: '1234567890',
-      address: 'Test Street 123, 00-001 Warsaw, Poland',
+      name: 'Fiskario Test Company'
     },
   });
+
+  let testCompany;
+  if (existingCompany) {
+    testCompany = existingCompany;
+  } else {
+    testCompany = await prisma.company.create({
+      data: {
+        tenant_id: 'default-tenant',
+        name: 'Fiskario Test Company',
+        nip: '1234567890',
+        address: 'Test Street 123, 00-001 Warsaw, Poland',
+      },
+    });
+  }
 
   console.log('✅ Created test company:', testCompany.name);
 

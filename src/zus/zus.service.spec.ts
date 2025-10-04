@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { ZusService } from './zus.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateZUSEmployeeDto } from './dto/zus-employee.dto';
+import { UpdateZUSEmployeeDto } from './dto/zus-employee.dto';
+import { CreateZUSRegistrationDto } from './dto/zus-registration.dto';
+import { CreateZUSReportDto } from './dto/zus-report.dto';
 
 describe('ZusService', () => {
   let service: ZusService;
@@ -9,16 +14,33 @@ describe('ZusService', () => {
   const mockPrismaService = {
     zUSEmployee: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      updateMany: jest.fn(),
     },
     zUSContribution: {
       findMany: jest.fn(),
+      create: jest.fn(),
     },
     zUSRegistration: {
       findMany: jest.fn(),
+      create: jest.fn(),
     },
     zUSReport: {
       findMany: jest.fn(),
+      create: jest.fn(),
     },
+  };
+
+  // Mock ZUS rates
+  const ZUS_RATES = {
+    emerytalna: { employer: 9.76, employee: 9.76 },
+    rentowa: { employer: 6.50, employee: 1.50 },
+    chorobowa: { employee: 2.45 },
+    wypadkowa: { employer: 1.67 },
+    zdrowotna: { employee: 9.00 },
+    fp: { employer: 2.45 },
+    fgsp: { employer: 0.10 }
   };
 
   beforeEach(async () => {
@@ -211,7 +233,19 @@ describe('ZusService', () => {
       });
     });
   });
-});
+
+  describe('createEmployee', () => {
+    const mockEmployeeDto: CreateZUSEmployeeDto = {
+      firstName: 'John',
+      lastName: 'Doe',
+      pesel: '12345678901',
+      address: 'Test Address 1',
+      salaryBasis: 5000,
+      employmentDate: '2024-01-15',
+      birthDate: '1990-05-20',
+      insuranceStartDate: '2024-01-15',
+      contractType: 'employment',
+    };
 
     const mockCreatedEmployee = {
       id: 'employee-id',
@@ -459,7 +493,6 @@ describe('ZusService', () => {
     const mockUpdateDto: UpdateZUSEmployeeDto = {
       firstName: 'John Updated',
       salaryBasis: 6000,
-      position: 'Senior Developer',
     };
 
     const mockUpdateResult = {
@@ -801,7 +834,13 @@ describe('ZusService', () => {
       employeeId: 'employee-123',
       formType: 'ZUA',
       registrationDate: '2024-01-15',
-      insuranceTypes: ['emerytalna', 'rentowa', 'chorobowa', 'zdrowotna'],
+      insuranceTypes: {
+        emerytalna: true,
+        rentowa: true,
+        chorobowa: true,
+        wypadkowa: false,
+        zdrowotna: true,
+      },
       contributionBasis: 5000,
     };
 
@@ -914,12 +953,12 @@ describe('ZusService', () => {
       for (const formType of formTypes) {
         const dtoWithFormType = {
           ...mockRegistrationDto,
-          formType,
+          formType: formType as 'ZUA' | 'ZZA' | 'ZWUA',
         };
 
         mockPrismaService.zUSRegistration.create.mockResolvedValue({
           ...mockCreatedRegistration,
-          formType,
+          formType: formType as 'ZUA' | 'ZZA' | 'ZWUA',
           data: expect.objectContaining({ formType }),
         });
 
@@ -938,20 +977,28 @@ describe('ZusService', () => {
       ];
 
       for (const insuranceTypes of insuranceTypesScenarios) {
+        const insuranceTypesObj = {
+          emerytalna: insuranceTypes.includes('emerytalna'),
+          rentowa: insuranceTypes.includes('rentowa'),
+          chorobowa: insuranceTypes.includes('chorobowa'),
+          wypadkowa: insuranceTypes.includes('wypadkowa'),
+          zdrowotna: insuranceTypes.includes('zdrowotna'),
+        };
+
         const dtoWithInsuranceTypes = {
           ...mockRegistrationDto,
-          insuranceTypes,
+          insuranceTypes: insuranceTypesObj,
         };
 
         mockPrismaService.zUSRegistration.create.mockResolvedValue({
           ...mockCreatedRegistration,
-          insuranceTypes,
-          data: expect.objectContaining({ insuranceTypes }),
+          insuranceTypes: insuranceTypesObj,
+          data: expect.objectContaining({ insuranceTypes: insuranceTypesObj }),
         });
 
         const result = await service.createRegistration('tenant-123', 'company-456', dtoWithInsuranceTypes);
 
-        expect(result.insuranceTypes).toEqual(insuranceTypes);
+        expect(result.insuranceTypes).toEqual(insuranceTypesObj);
       }
     });
 
@@ -973,7 +1020,7 @@ describe('ZusService', () => {
       const registrations = Array.from({ length: 3 }, (_, i) => ({
         ...mockRegistrationDto,
         employeeId: `employee-${i}`,
-        formType: `ZUA${i}`,
+        formType: i === 0 ? 'ZUA' : (i === 1 ? 'ZZA' : 'ZWUA') as 'ZUA' | 'ZZA' | 'ZWUA',
       }));
 
       const results = await Promise.all(
@@ -1103,9 +1150,9 @@ describe('ZusService', () => {
       const expectedTotalContributions = 100 + 50 + 80 + 40 + 30 + 20 + 45 + 10 + 5 + 120 + 60 + 96 + 48 + 36 + 24 + 54 + 12 + 6;
 
       expect(result.totalContributions).toBe(expectedTotalContributions);
-      expect(result.data.summary.totalEmployees).toBe(2);
-      expect(result.data.summary.totalEmerytalnaEmployer).toBe(220); // 100 + 120
-      expect(result.data.summary.totalEmerytalnaEmployee).toBe(110); // 50 + 60
+      expect((result.data as any)?.summary?.totalEmployees).toBe(2);
+      expect((result.data as any)?.summary?.totalEmerytalnaEmployer).toBe(220); // 100 + 120
+      expect((result.data as any)?.summary?.totalEmerytalnaEmployee).toBe(110); // 50 + 60
     });
 
     it('should handle empty contributions', async () => {
@@ -1115,7 +1162,7 @@ describe('ZusService', () => {
 
       expect(result.totalEmployees).toBe(0);
       expect(result.totalContributions).toBe(0);
-      expect(result.data.summary.totalEmployees).toBe(0);
+      expect((result.data as any)?.summary?.totalEmployees).toBe(0);
     });
 
     it('should handle database errors during employee lookup', async () => {
@@ -1154,7 +1201,12 @@ describe('ZusService', () => {
           data: expect.objectContaining({ reportType }),
         });
 
-        const result = await service.createReport('tenant-123', 'company-456', dtoWithReportType);
+        const dtoWithReportTypeFixed = {
+          ...mockReportDto,
+          reportType: reportType as 'RCA' | 'RZA' | 'RSA' | 'DRA' | 'RPA',
+        };
+
+        const result = await service.createReport('tenant-123', 'company-456', dtoWithReportTypeFixed);
 
         expect(result.reportType).toBe(reportType);
       }
@@ -1483,18 +1535,8 @@ describe('ZusService', () => {
     it('should handle year boundary correctly for monthly deadlines', () => {
       // Mock current date to be December
       const originalDate = Date;
-      (global as any).Date = class extends Date {
-        constructor(...args: any[]) {
-          if (args.length === 0) {
-            super('2024-12-15'); // December 15, 2024
-          } else {
-            super(...args);
-          }
-        }
-        static now() {
-          return new originalDate('2024-12-15').getTime();
-        }
-      };
+      const mockDate = new originalDate('2024-12-15');
+      jest.spyOn(global, 'Date').mockImplementation(() => mockDate as any);
 
       const result = service.getZUSDeadlines();
 
@@ -1503,24 +1545,14 @@ describe('ZusService', () => {
       expect(result.monthlyReports.deadline.getFullYear()).toBe(2025);
 
       // Restore original Date
-      (global as any).Date = originalDate;
+      jest.restoreAllMocks();
     });
 
     it('should handle year boundary correctly for annual deadlines', () => {
       // Mock current date to be December
       const originalDate = Date;
-      (global as any).Date = class extends Date {
-        constructor(...args: any[]) {
-          if (args.length === 0) {
-            super('2024-12-15'); // December 15, 2024
-          } else {
-            super(...args);
-          }
-        }
-        static now() {
-          return new originalDate('2024-12-15').getTime();
-        }
-      };
+      const mockDate = new originalDate('2024-12-15');
+      jest.spyOn(global, 'Date').mockImplementation(() => mockDate as any);
 
       const result = service.getZUSDeadlines();
 
@@ -1530,7 +1562,7 @@ describe('ZusService', () => {
       expect(result.annualReports.deadline.getDate()).toBe(31);
 
       // Restore original Date
-      (global as any).Date = originalDate;
+      jest.restoreAllMocks();
     });
 
     it('should return consistent results for same date', () => {
@@ -1570,8 +1602,7 @@ describe('ZusService', () => {
         employmentDate: '2024-01-15',
         birthDate: '1990-05-20',
         insuranceStartDate: '2024-01-15',
-        employmentType: 'Umowa o pracę',
-        position: 'Developer',
+        contractType: 'employment',
       };
 
       await expect(service.createEmployee(undefined as any, 'company-456', mockEmployeeDto))
@@ -1588,8 +1619,7 @@ describe('ZusService', () => {
         employmentDate: '2024-01-15',
         birthDate: '1990-05-20',
         insuranceStartDate: '2024-01-15',
-        employmentType: 'Umowa o pracę',
-        position: 'Developer',
+        contractType: 'employment',
       };
 
       await expect(service.createEmployee('tenant-123', null as any, mockEmployeeDto))
@@ -1607,8 +1637,7 @@ describe('ZusService', () => {
         employmentDate: '2024-01-15',
         birthDate: '1990-05-20',
         insuranceStartDate: '2024-01-15',
-        employmentType: longString,
-        position: longString,
+        contractType: 'employment',
       };
 
       const result = await service.createEmployee('tenant-123', 'company-456', dtoWithLongData);
@@ -1628,8 +1657,7 @@ describe('ZusService', () => {
         employmentDate: '2024-01-15',
         birthDate: '1990-05-20',
         insuranceStartDate: '2024-01-15',
-        employmentType: 'Contrato de trabajo',
-        position: 'Desarrollador',
+        contractType: 'employment',
       };
 
       const result = await service.createEmployee('tenant-123', 'company-456', dtoWithSpecialChars);

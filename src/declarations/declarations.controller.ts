@@ -155,6 +155,186 @@ export class DeclarationsController {
   }
 
   /**
+   * Calculate PIT-36 (annual tax return)
+   */
+  @Post('calculate/pit-36')
+  async calculatePIT36(@Request() req, @Body() body: { year: number, companyId: string }) {
+    try {
+      const { year, companyId } = body;
+      const calculation = await this.taxCalculationService.calculatePIT36(
+        req.user.tenant_id,
+        companyId,
+        year
+      );
+
+      return {
+        success: true,
+        data: calculation,
+        message: `PIT-36 calculation completed for year ${year}`
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to calculate PIT-36',
+          error: error.name
+        },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  /**
+   * Calculate PIT-36L (linear tax annual return)
+   */
+  @Post('calculate/pit-36l')
+  async calculatePIT36L(@Request() req, @Body() body: { year: number, companyId: string }) {
+    try {
+      const { year, companyId } = body;
+      const calculation = await this.taxCalculationService.calculatePIT36L(
+        req.user.tenant_id,
+        companyId,
+        year
+      );
+
+      return {
+        success: true,
+        data: calculation,
+        message: `PIT-36L calculation completed for year ${year}`
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to calculate PIT-36L',
+          error: error.name
+        },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  /**
+   * Calculate CIT-8 (corporate income tax return)
+   */
+  @Post('calculate/cit-8')
+  async calculateCIT8(@Request() req, @Body() body: { year: number, companyId: string }) {
+    try {
+      const { year, companyId } = body;
+      const calculation = await this.taxCalculationService.calculateCIT8(
+        req.user.tenant_id,
+        companyId,
+        year
+      );
+
+      return {
+        success: true,
+        data: calculation,
+        message: `CIT-8 calculation completed for year ${year}`
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to calculate CIT-8',
+          error: error.name
+        },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  /**
+   * Calculate CIT-8AB (simplified corporate tax return)
+   */
+  @Post('calculate/cit-8ab')
+  async calculateCIT8AB(@Request() req, @Body() body: { year: number, companyId: string }) {
+    try {
+      const { year, companyId } = body;
+      const calculation = await this.taxCalculationService.calculateCIT8AB(
+        req.user.tenant_id,
+        companyId,
+        year
+      );
+
+      return {
+        success: true,
+        data: calculation,
+        message: `CIT-8AB calculation completed for year ${year}`
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to calculate CIT-8AB',
+          error: error.name
+        },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  /**
+   * Calculate VAT-UE (EU VAT declaration)
+   */
+  @Post('calculate/vat-ue')
+  async calculateVATUE(@Request() req, @Body() body: { period: string, companyId: string }) {
+    try {
+      const { period, companyId } = body;
+      const calculation = await this.taxCalculationService.calculateVATUE(
+        req.user.tenant_id,
+        companyId,
+        period
+      );
+
+      return {
+        success: true,
+        data: calculation,
+        message: `VAT-UE calculation completed for period ${period}`
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to calculate VAT-UE',
+          error: error.name
+        },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  /**
+   * Calculate PCC-3 (civil law transactions tax)
+   */
+  @Post('calculate/pcc-3')
+  async calculatePCC3(@Request() req, @Body() body: { period: string, companyId: string }) {
+    try {
+      const { period, companyId } = body;
+      const calculation = await this.taxCalculationService.calculatePCC3(
+        req.user.tenant_id,
+        companyId,
+        period
+      );
+
+      return {
+        success: true,
+        data: calculation,
+        message: `PCC-3 calculation completed for period ${period}`
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to calculate PCC-3',
+          error: error.name
+        },
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  /**
    * Generate XML for declaration
    */
   @Post('generate-xml')
@@ -182,14 +362,28 @@ export class DeclarationsController {
           break;
         case DeclarationType.JPK_V7M:
         case DeclarationType.JPK_V7K:
-          xmlContent = this.xmlGenerationService.generateJPKV7XML(
-            calculationData,
-            company,
-            variant || 'M'
-          );
+          xmlContent = this.xmlGenerationService.generateJPKV7XML({
+            ...calculationData,
+            variant: variant || 'M'
+          });
           break;
         case DeclarationType.PIT_36:
           xmlContent = this.xmlGenerationService.generatePIT36XML(calculationData, company);
+          break;
+        case DeclarationType.PIT_36L:
+          xmlContent = this.xmlGenerationService.generatePIT36LXML(calculationData, company);
+          break;
+        case DeclarationType.CIT_8:
+          xmlContent = this.xmlGenerationService.generateCIT8XML(calculationData, company);
+          break;
+        case DeclarationType.CIT_8AB:
+          xmlContent = this.xmlGenerationService.generateCIT8ABXML(calculationData, company);
+          break;
+        case DeclarationType.VAT_UE:
+          xmlContent = this.xmlGenerationService.generateVATUEXML(calculationData, company);
+          break;
+        case DeclarationType.PCC_3:
+          xmlContent = this.xmlGenerationService.generatePCC3XML(calculationData, company);
           break;
         default:
           throw new Error(`Unsupported declaration type: ${type}`);
@@ -377,6 +571,76 @@ export class DeclarationsController {
             period: `${deadlineYear}-K${q.quarter}`,
             deadline: deadline.toISOString(),
             description: `JPK_V7K ${q.description} ${deadlineYear}`
+          });
+        }
+      }
+
+      // Annual declaration deadlines (31st March of following year)
+      const annualDeadline = new Date(currentYear + 1, 2, 31); // March 31st
+      if (annualDeadline >= currentDate) {
+        // PIT-36, PIT-36L, CIT-8, CIT-8AB annual deadlines
+        const annualDeclarations = [
+          { type: DeclarationType.PIT_36, description: 'PIT-36 Annual Tax Return' },
+          { type: DeclarationType.PIT_36L, description: 'PIT-36L Linear Tax Annual Return' },
+          { type: DeclarationType.CIT_8, description: 'CIT-8 Corporate Income Tax Return' },
+          { type: DeclarationType.CIT_8AB, description: 'CIT-8AB Simplified Corporate Tax Return' }
+        ];
+
+        for (const decl of annualDeclarations) {
+          deadlines.push({
+            type: decl.type,
+            period: `${currentYear}`,
+            deadline: annualDeadline.toISOString(),
+            description: `${decl.description} for ${currentYear}`
+          });
+        }
+      }
+
+      // PCC-3 quarterly deadlines (25th of month following quarter end)
+      const pccQuarters = [
+        { quarter: 1, month: 4, description: 'Q1' },
+        { quarter: 2, month: 7, description: 'Q2' },
+        { quarter: 3, month: 10, description: 'Q3' },
+        { quarter: 4, month: 1, description: 'Q4' }
+      ];
+
+      for (const q of pccQuarters) {
+        let deadlineYear = currentYear;
+        let deadlineMonth = q.month;
+
+        if (q.quarter === 4) {
+          deadlineYear = currentYear + 1;
+          deadlineMonth = 1;
+        }
+
+        const deadline = new Date(deadlineYear, deadlineMonth, 25);
+        if (deadline >= currentDate) {
+          deadlines.push({
+            type: DeclarationType.PCC_3,
+            period: `${deadlineYear}-K${q.quarter}`,
+            deadline: deadline.toISOString(),
+            description: `PCC-3 ${q.description} ${deadlineYear}`
+          });
+        }
+      }
+
+      // VAT-UE quarterly deadlines (25th of month following quarter end)
+      for (const q of quarters) {
+        let deadlineYear = currentYear;
+        let deadlineMonth = q.month;
+
+        if (q.quarter === 4) {
+          deadlineYear = currentYear + 1;
+          deadlineMonth = 1;
+        }
+
+        const deadline = new Date(deadlineYear, deadlineMonth, 25);
+        if (deadline >= currentDate) {
+          deadlines.push({
+            type: DeclarationType.VAT_UE,
+            period: `${deadlineYear}-K${q.quarter}`,
+            deadline: deadline.toISOString(),
+            description: `VAT-UE ${q.description} ${deadlineYear}`
           });
         }
       }

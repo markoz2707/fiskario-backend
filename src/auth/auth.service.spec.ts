@@ -171,6 +171,10 @@ describe('AuthService', () => {
       expect(jwtService.sign).toHaveBeenCalledWith(expectedPayload);
       expect(result).toEqual({
         access_token: mockToken,
+        user: {
+          email: 'test@example.com',
+          tenant_id: 'tenant-123',
+        },
       });
     });
 
@@ -195,6 +199,10 @@ describe('AuthService', () => {
       expect(jwtService.sign).toHaveBeenCalledWith(expectedPayload);
       expect(result).toEqual({
         access_token: mockToken,
+        user: {
+          email: 'test@example.com',
+          tenant_id: undefined,
+        },
       });
     });
 
@@ -241,6 +249,10 @@ describe('AuthService', () => {
 
       expect(loginResult).toEqual({
         access_token: mockToken,
+        user: {
+          email: 'test@example.com',
+          tenant_id: 'tenant-123',
+        },
       });
 
       expect(jwtService.sign).toHaveBeenCalledWith({
@@ -281,6 +293,10 @@ describe('AuthService', () => {
       });
       expect(result).toEqual({
         access_token: mockToken,
+        user: {
+          email: undefined,
+          tenant_id: undefined,
+        },
       });
     });
   });

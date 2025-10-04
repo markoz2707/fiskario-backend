@@ -74,7 +74,7 @@ describe('PushNotificationService', () => {
     });
 
     it('should create template successfully', async () => {
-      const result = await service.createTemplate(mockTemplateData);
+      const result = await service.createTemplate(mockTemplateData, 'test-tenant');
 
       expect(result).toEqual(mockCreatedTemplate);
 
@@ -93,7 +93,7 @@ describe('PushNotificationService', () => {
     it('should handle database errors during template creation', async () => {
       mockPrismaService.notificationTemplate.create.mockRejectedValue(new Error('Database error'));
 
-      await expect(service.createTemplate(mockTemplateData))
+      await expect(service.createTemplate(mockTemplateData, 'test-tenant'))
         .rejects.toThrow('Database error');
     });
 
@@ -103,7 +103,7 @@ describe('PushNotificationService', () => {
         variables: [],
       };
 
-      const result = await service.createTemplate(templateWithoutVariables);
+      const result = await service.createTemplate(templateWithoutVariables, 'test-tenant');
 
       expect(result).toBeDefined();
       expect(prismaService.notificationTemplate.create).toHaveBeenCalledWith({
@@ -119,7 +119,7 @@ describe('PushNotificationService', () => {
         variables: ['var1', 'var2', 'var3'],
       };
 
-      const result = await service.createTemplate(templateWithMultipleVariables);
+      const result = await service.createTemplate(templateWithMultipleVariables, 'test-tenant');
 
       expect(result).toBeDefined();
       expect(prismaService.notificationTemplate.create).toHaveBeenCalledWith({
@@ -136,7 +136,7 @@ describe('PushNotificationService', () => {
         body: 'Body with spëcial çhars!@#$%',
       };
 
-      const result = await service.createTemplate(templateWithSpecialChars);
+      const result = await service.createTemplate(templateWithSpecialChars, 'test-tenant');
 
       expect(result).toBeDefined();
       expect(prismaService.notificationTemplate.create).toHaveBeenCalledWith({
@@ -155,7 +155,7 @@ describe('PushNotificationService', () => {
         body: longContent,
       };
 
-      const result = await service.createTemplate(templateWithLongContent);
+      const result = await service.createTemplate(templateWithLongContent, 'test-tenant');
 
       expect(result).toBeDefined();
       expect(prismaService.notificationTemplate.create).toHaveBeenCalledWith({
@@ -173,7 +173,7 @@ describe('PushNotificationService', () => {
       }));
 
       const results = await Promise.all(
-        templates.map(template => service.createTemplate(template))
+        templates.map(template => service.createTemplate(template, 'test-tenant'))
       );
 
       expect(results).toHaveLength(5);
@@ -1431,7 +1431,7 @@ describe('PushNotificationService', () => {
         isActive: 'not_a_boolean' as any,
       };
 
-      await expect(service.createTemplate(malformedTemplate))
+      await expect(service.createTemplate(malformedTemplate, 'test-tenant'))
         .rejects.toThrow();
     });
 

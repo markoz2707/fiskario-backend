@@ -1,4 +1,19 @@
-import { IsString, IsOptional, IsBoolean, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsObject } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class AddressDto {
+  @IsString()
+  street: string;
+
+  @IsString()
+  city: string;
+
+  @IsString()
+  postalCode: string;
+
+  @IsString()
+  country: string;
+}
 
 export class CreateCompanyDto {
   @IsString()
@@ -10,15 +25,24 @@ export class CreateCompanyDto {
 
   @IsString()
   @IsOptional()
-  address?: string;
+  regon?: string;
 
-  @IsEnum(['individual', 'partnership', 'corporation'])
+  @IsObject()
   @IsOptional()
-  taxForm?: 'individual' | 'partnership' | 'corporation';
+  @Type(() => AddressDto)
+  address?: AddressDto;
+
+  @IsString()
+  @IsOptional()
+  vatStatus?: string;
+
+  @IsString()
+  @IsOptional()
+  taxOffice?: string;
 
   @IsBoolean()
   @IsOptional()
-  vatPayer?: boolean;
+  isActive?: boolean;
 }
 
 export class UpdateCompanyDto extends CreateCompanyDto {

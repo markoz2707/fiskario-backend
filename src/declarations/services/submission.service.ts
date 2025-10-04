@@ -1,6 +1,10 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SignatureService, SignatureResult } from './signature.service';
+import { EDeklaracjeService } from './e-deklaracje.service';
+import { UPOProcessingService } from './upo-processing.service';
+import { DeclarationStatusService } from './declaration-status.service';
+import { ErrorHandlingService } from './error-handling.service';
 
 export interface SubmissionResult {
   success: boolean;
@@ -25,6 +29,10 @@ export class SubmissionService {
   constructor(
     private prisma: PrismaService,
     private signatureService: SignatureService,
+    private eDeklaracjeService: EDeklaracjeService,
+    private upoProcessingService: UPOProcessingService,
+    private declarationStatusService: DeclarationStatusService,
+    private errorHandlingService: ErrorHandlingService,
   ) {}
 
   /**
@@ -159,14 +167,15 @@ export class SubmissionService {
    */
   async checkSubmissionStatus(upoNumber: string): Promise<any> {
     try {
-      // Here you would query the US API for submission status
-      // For now, return mock status
+      // Use e-Deklaracje service to check status
+      const statusResult = await this.eDeklaracjeService.checkDeclarationStatus(upoNumber);
 
       return {
-        upoNumber,
-        status: 'accepted', // accepted, rejected, processing
-        processedDate: new Date().toISOString(),
-        description: 'Deklaracja została zaakceptowana',
+        upoNumber: statusResult.upoNumber,
+        status: statusResult.status,
+        processedDate: statusResult.processingDate,
+        description: statusResult.statusDescription,
+        details: statusResult.details
       };
     } catch (error) {
       this.logger.error(`Failed to check status for UPO ${upoNumber}:`, error);
@@ -233,20 +242,21 @@ export class SubmissionService {
    */
   private async submitToUSAPI(xmlContent: string): Promise<SubmissionResult> {
     try {
-      // Here you would implement actual US API integration
-      // For now, simulate API call
-
-      const mockUPO = `UPO-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Use e-Deklaracje service for actual submission
+      const submissionResult = await this.eDeklaracjeService.submitDeclaration({
+        documentType: 'VAT-7', // This should be determined from the XML content
+        documentVersion: '1.0',
+        xmlContent: xmlContent,
+        signatureType: 'profil_zaufany' // This should be determined from the declaration
+      });
 
       return {
-        success: true,
-        upoNumber: mockUPO,
-        upoDate: new Date().toISOString(),
-        status: 'submitted',
-        message: 'Deklaracja została przyjęta do systemu',
+        success: submissionResult.success,
+        upoNumber: submissionResult.upoNumber,
+        upoDate: submissionResult.upoDate,
+        status: submissionResult.status || 'submitted',
+        message: submissionResult.message || 'Deklaracja została przyjęta do systemu',
+        error: submissionResult.error
       };
     } catch (error) {
       return {
@@ -261,20 +271,21 @@ export class SubmissionService {
    */
   private async submitToJPKAPI(xmlContent: string): Promise<SubmissionResult> {
     try {
-      // Here you would implement actual JPK API integration
-      // For now, simulate API call
-
-      const mockReference = `JPK-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Use e-Deklaracje service for JPK submission
+      const submissionResult = await this.eDeklaracjeService.submitDeclaration({
+        documentType: 'JPK_V7M', // This should be determined from the XML content
+        documentVersion: '1.0',
+        xmlContent: xmlContent,
+        signatureType: 'profil_zaufany' // This should be determined from the declaration
+      });
 
       return {
-        success: true,
-        upoNumber: mockReference,
-        upoDate: new Date().toISOString(),
-        status: 'submitted',
-        message: 'JPK został przyjęty do systemu',
+        success: submissionResult.success,
+        upoNumber: submissionResult.upoNumber,
+        upoDate: submissionResult.upoDate,
+        status: submissionResult.status || 'submitted',
+        message: submissionResult.message || 'JPK został przyjęty do systemu',
+        error: submissionResult.error
       };
     } catch (error) {
       return {

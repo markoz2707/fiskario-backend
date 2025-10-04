@@ -5,8 +5,12 @@ export enum DeclarationType {
   JPK_V7M = 'JPK_V7M',
   JPK_V7K = 'JPK_V7K',
   PIT_36 = 'PIT-36',
+  PIT_36L = 'PIT-36L',
   PIT_37 = 'PIT-37',
-  CIT_8 = 'CIT-8'
+  CIT_8 = 'CIT-8',
+  CIT_8AB = 'CIT-8AB',
+  VAT_UE = 'VAT-UE',
+  PCC_3 = 'PCC-3'
 }
 
 export enum VATRegisterType {

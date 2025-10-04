@@ -518,6 +518,73 @@ export class NotificationsController {
     }
   }
 
+  @Get('deadlines/compliance-report')
+  @Roles('user', 'admin')
+  async getDeadlineComplianceReport(
+    @Req() req: Request & { user: AuthenticatedUser },
+    @Query() query: { startDate: string; endDate: string },
+  ) {
+    try {
+      const { tenant_id, company_id } = req.user;
+
+      if (!company_id) {
+        throw new HttpException('Company ID is required', HttpStatus.BAD_REQUEST);
+      }
+
+      const startDate = new Date(query.startDate);
+      const endDate = new Date(query.endDate);
+
+      const report = await this.deadlineManagementService.generateComplianceReport(
+        tenant_id,
+        company_id,
+        startDate,
+        endDate,
+      );
+
+      return {
+        success: true,
+        data: report,
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Failed to generate deadline compliance report: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('deadlines/history')
+  @Roles('user', 'admin')
+  async getDeadlineHistory(
+    @Req() req: Request & { user: AuthenticatedUser },
+    @Query() query: { limit?: string },
+  ) {
+    try {
+      const { tenant_id, company_id } = req.user;
+
+      if (!company_id) {
+        throw new HttpException('Company ID is required', HttpStatus.BAD_REQUEST);
+      }
+
+      const limit = query.limit ? parseInt(query.limit) : 50;
+      const history = await this.deadlineManagementService.getDeadlineHistory(
+        tenant_id,
+        company_id,
+        limit,
+      );
+
+      return {
+        success: true,
+        data: history,
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Failed to get deadline history: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   // Test/Utility endpoints
   @Post('test-notification')
   @Roles('admin')

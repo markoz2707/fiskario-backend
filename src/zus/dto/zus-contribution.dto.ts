@@ -103,7 +103,7 @@ export interface ZUSContributionCalculation {
   totalContribution: number;
 }
 
-// Current ZUS contribution rates (as of 2024)
+// Current ZUS contribution rates (as of 2025)
 export const ZUS_RATES = {
   emerytalna: {
     employer: 9.76,
@@ -124,9 +124,9 @@ export const ZUS_RATES = {
     total: 1.67
   },
   zdrowotna: {
-    employee: 9.0,
+    employee: 9.5,
     deductible: 7.75, // Percentage of basis for tax deduction
-    total: 9.0
+    total: 9.5
   },
   fp: {
     employer: 2.45,
@@ -135,5 +135,27 @@ export const ZUS_RATES = {
   fgsp: {
     employer: 0.1,
     total: 0.1
+  }
+} as const;
+
+// ZUS contribution rates for historical reference and dynamic calculation
+export const ZUS_RATES_HISTORY = {
+  '2025': {
+    emerytalna: { employer: 9.76, employee: 9.76, total: 19.52 },
+    rentowa: { employer: 6.5, employee: 1.5, total: 8.0 },
+    chorobowa: { employee: 2.45, total: 2.45 },
+    wypadkowa: { employer: 1.67, total: 1.67 },
+    zdrowotna: { employee: 9.5, deductible: 7.75, total: 9.5 },
+    fp: { employer: 2.45, total: 2.45 },
+    fgsp: { employer: 0.1, total: 0.1 }
+  },
+  '2024': {
+    emerytalna: { employer: 9.76, employee: 9.76, total: 19.52 },
+    rentowa: { employer: 6.5, employee: 1.5, total: 8.0 },
+    chorobowa: { employee: 2.45, total: 2.45 },
+    wypadkowa: { employer: 1.67, total: 1.67 },
+    zdrowotna: { employee: 9.0, deductible: 7.75, total: 9.0 },
+    fp: { employer: 2.45, total: 2.45 },
+    fgsp: { employer: 0.1, total: 0.1 }
   }
 } as const;

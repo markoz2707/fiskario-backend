@@ -120,6 +120,9 @@ export class CashflowReportService {
           in: ['issued', 'sent'],
         },
       },
+      include: {
+        buyer: true,
+      },
       orderBy: { dueDate: 'asc' },
     });
 
@@ -132,7 +135,7 @@ export class CashflowReportService {
         dueDate: invoice.dueDate || undefined,
         amount: invoice.totalGross,
         description: `Faktura ${invoice.series}${invoice.number}`,
-        counterpartyName: invoice.buyerName,
+        counterpartyName: invoice.buyer?.name || 'Unknown Buyer',
         status: this.getPaymentStatus(invoice.dueDate),
         daysUntilDue: daysUntilDue > 0 ? daysUntilDue : undefined,
         category: 'invoice',
@@ -152,9 +155,12 @@ export class CashflowReportService {
           in: ['issued', 'sent'],
         },
         // Assuming purchase invoices are those where the company is the buyer
-        buyerNip: {
+        buyer_id: {
           not: null,
         },
+      },
+      include: {
+        buyer: true,
       },
       orderBy: { dueDate: 'asc' },
     });
@@ -168,7 +174,7 @@ export class CashflowReportService {
         dueDate: invoice.dueDate || undefined,
         amount: invoice.totalGross,
         description: `Faktura ${invoice.series}${invoice.number}`,
-        counterpartyName: invoice.buyerName,
+        counterpartyName: invoice.buyer?.name || 'Unknown Buyer',
         status: this.getPaymentStatus(invoice.dueDate),
         daysUntilDue: daysUntilDue > 0 ? daysUntilDue : undefined,
         category: 'invoice',

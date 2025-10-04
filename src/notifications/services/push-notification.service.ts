@@ -389,6 +389,46 @@ export class PushNotificationService {
           variables: ['invoiceNumber', 'amount', 'daysOverdue', 'counterpartyName'],
           isActive: true,
         },
+        {
+          name: 'jpk_deadline_reminder',
+          type: 'deadline' as const,
+          title: 'Przypomnienie: Termin JPK',
+          body: 'Przypominamy o zbliżającym się terminie składania {declarationType} za okres {period}. Termin upływa {dueDate}.',
+          variables: ['declarationType', 'period', 'dueDate'],
+          isActive: true,
+        },
+        {
+          name: 'jpk_deadline_due',
+          type: 'deadline' as const,
+          title: 'Termin JPK upływa dzisiaj',
+          body: 'Dzisiaj upływa termin składania {declarationType} za okres {period}.',
+          variables: ['declarationType', 'period'],
+          isActive: true,
+        },
+        {
+          name: 'deadline_reminder',
+          type: 'deadline' as const,
+          title: 'Przypomnienie: Termin deklaracji',
+          body: 'Przypominamy o zbliżającym się terminie składania {declarationType} za okres {period}. Termin upływa {dueDate}.',
+          variables: ['declarationType', 'period', 'dueDate'],
+          isActive: true,
+        },
+        {
+          name: 'deadline_due',
+          type: 'deadline' as const,
+          title: 'Termin deklaracji upływa dzisiaj',
+          body: 'Dzisiaj upływa termin składania {declarationType} za okres {period}.',
+          variables: ['declarationType', 'period'],
+          isActive: true,
+        },
+        {
+          name: 'deadline_overdue',
+          type: 'deadline' as const,
+          title: 'Przeterminowana deklaracja',
+          body: 'Deklaracja {declarationType} za okres {period} jest przeterminowana od {daysOverdue} dni.',
+          variables: ['declarationType', 'period', 'daysOverdue'],
+          isActive: true,
+        },
       ];
 
       for (const template of defaultTemplates) {

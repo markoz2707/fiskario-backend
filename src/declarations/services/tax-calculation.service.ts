@@ -225,6 +225,276 @@ export class TaxCalculationService {
   }
 
   /**
+   * Calculate PIT-36 (annual tax return for businesses)
+   */
+  async calculatePIT36(tenantId: string, companyId: string, year: number): Promise<any> {
+    // Get all tax calculations for the year
+    const taxCalcs = await this.prisma.taxCalculation.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        period: {
+          startsWith: year.toString()
+        },
+        declarationType: DeclarationType.PIT_36,
+      },
+    });
+
+    // Calculate annual totals
+    const totalRevenue = taxCalcs.reduce((sum, calc) => sum + (calc.totalRevenue || 0), 0);
+    const totalCosts = taxCalcs.reduce((sum, calc) => sum + (calc.totalCosts || 0), 0);
+    const totalTaxDeductibleCosts = taxCalcs.reduce((sum, calc) => sum + (calc.taxDeductibleCosts || 0), 0);
+
+    const taxableIncome = totalRevenue - totalTaxDeductibleCosts;
+
+    // Polish PIT tax brackets and rates (2024)
+    const taxBrackets = [
+      { threshold: 120000, rate: 0.12 }, // 12% up to 120,000 PLN
+      { threshold: Infinity, rate: 0.32 } // 32% above 120,000 PLN
+    ];
+
+    let taxDue = 0;
+    if (taxableIncome <= 0) {
+      taxDue = 0;
+    } else if (taxableIncome <= taxBrackets[0].threshold) {
+      taxDue = taxableIncome * taxBrackets[0].rate;
+    } else {
+      taxDue = taxBrackets[0].threshold * taxBrackets[0].rate +
+               (taxableIncome - taxBrackets[0].threshold) * taxBrackets[1].rate;
+    }
+
+    return {
+      year,
+      period: year.toString(),
+      declarationType: DeclarationType.PIT_36,
+      totalRevenue,
+      totalCosts,
+      taxDeductibleCosts: totalTaxDeductibleCosts,
+      taxableIncome,
+      taxBase: taxableIncome,
+      taxDue,
+      details: {
+        taxBrackets,
+        monthlyCalculations: taxCalcs,
+        calculation: {
+          firstBracket: Math.min(taxableIncome, taxBrackets[0].threshold) * taxBrackets[0].rate,
+          secondBracket: taxableIncome > taxBrackets[0].threshold ?
+            (taxableIncome - taxBrackets[0].threshold) * taxBrackets[1].rate : 0,
+        }
+      }
+    };
+  }
+
+  /**
+   * Calculate PIT-36L (linear tax - 19% flat rate)
+   */
+  async calculatePIT36L(tenantId: string, companyId: string, year: number): Promise<any> {
+    // Get all tax calculations for the year
+    const taxCalcs = await this.prisma.taxCalculation.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        period: {
+          startsWith: year.toString()
+        },
+        declarationType: DeclarationType.PIT_36L,
+      },
+    });
+
+    // Calculate annual totals
+    const totalRevenue = taxCalcs.reduce((sum, calc) => sum + (calc.totalRevenue || 0), 0);
+    const totalCosts = taxCalcs.reduce((sum, calc) => sum + (calc.totalCosts || 0), 0);
+
+    const taxableIncome = totalRevenue - totalCosts;
+    const taxDue = taxableIncome > 0 ? taxableIncome * 0.19 : 0; // 19% flat rate
+
+    return {
+      year,
+      period: year.toString(),
+      declarationType: DeclarationType.PIT_36L,
+      totalRevenue,
+      totalCosts,
+      taxableIncome,
+      taxBase: taxableIncome,
+      taxDue,
+      taxRate: 0.19,
+      details: {
+        monthlyCalculations: taxCalcs,
+        calculation: {
+          taxDue: taxableIncome * 0.19
+        }
+      }
+    };
+  }
+
+  /**
+   * Calculate CIT-8 (corporate income tax return)
+   */
+  async calculateCIT8(tenantId: string, companyId: string, year: number): Promise<any> {
+    // Get all tax calculations for the year
+    const taxCalcs = await this.prisma.taxCalculation.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        period: {
+          startsWith: year.toString()
+        },
+        declarationType: DeclarationType.CIT_8,
+      },
+    });
+
+    // Calculate annual totals
+    const totalRevenue = taxCalcs.reduce((sum, calc) => sum + (calc.totalRevenue || 0), 0);
+    const totalCosts = taxCalcs.reduce((sum, calc) => sum + (calc.totalCosts || 0), 0);
+    const totalTaxDeductibleCosts = taxCalcs.reduce((sum, calc) => sum + (calc.taxDeductibleCosts || 0), 0);
+
+    const taxableIncome = totalRevenue - totalTaxDeductibleCosts;
+    const taxDue = taxableIncome > 0 ? taxableIncome * 0.19 : 0; // 19% CIT rate
+
+    return {
+      year,
+      period: year.toString(),
+      declarationType: DeclarationType.CIT_8,
+      totalRevenue,
+      totalCosts,
+      taxDeductibleCosts: totalTaxDeductibleCosts,
+      taxableIncome,
+      taxBase: taxableIncome,
+      taxDue,
+      taxRate: 0.19,
+      details: {
+        monthlyCalculations: taxCalcs,
+        calculation: {
+          taxDue: taxableIncome * 0.19
+        }
+      }
+    };
+  }
+
+  /**
+   * Calculate CIT-8AB (simplified corporate tax for small taxpayers)
+   */
+  async calculateCIT8AB(tenantId: string, companyId: string, year: number): Promise<any> {
+    // Get all tax calculations for the year
+    const taxCalcs = await this.prisma.taxCalculation.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        period: {
+          startsWith: year.toString()
+        },
+        declarationType: DeclarationType.CIT_8AB,
+      },
+    });
+
+    // Calculate annual totals
+    const totalRevenue = taxCalcs.reduce((sum, calc) => sum + (calc.totalRevenue || 0), 0);
+    const totalCosts = taxCalcs.reduce((sum, calc) => sum + (calc.totalCosts || 0), 0);
+
+    // For CIT-8AB, simplified tax base calculation
+    const simplifiedTaxBase = Math.max(0, totalRevenue - totalCosts);
+    const taxDue = simplifiedTaxBase * 0.09; // 9% rate for small taxpayers
+
+    return {
+      year,
+      period: year.toString(),
+      declarationType: DeclarationType.CIT_8AB,
+      totalRevenue,
+      totalCosts,
+      simplifiedTaxBase,
+      taxBase: simplifiedTaxBase,
+      taxDue,
+      taxRate: 0.09,
+      details: {
+        monthlyCalculations: taxCalcs,
+        calculation: {
+          taxDue: simplifiedTaxBase * 0.09
+        }
+      }
+    };
+  }
+
+  /**
+   * Calculate VAT-UE (EU VAT declaration for intra-community transactions)
+   */
+  async calculateVATUE(tenantId: string, companyId: string, period: string): Promise<any> {
+    // Get EU transactions for the quarter - using existing invoice data for now
+    const euInvoices = await this.prisma.invoice.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        date: {
+          gte: new Date(period.split('-')[0] + '-' + period.split('-')[1] + '-01'),
+          lt: new Date(parseInt(period.split('-')[0]), parseInt(period.split('-')[1]) + 1, 1)
+        }
+      },
+      include: {
+        items: true
+      }
+    });
+
+    // For now, assume all invoices are potential EU transactions
+    // In a real implementation, you'd have EU-specific flags
+    const euAcquisitions = euInvoices.filter(inv => inv.totalVat === 0); // Simplified assumption
+    const euSupplies = euInvoices.filter(inv => inv.totalVat > 0);
+
+    const totalAcquisitions = euAcquisitions.reduce((sum, inv) => sum + inv.totalNet, 0);
+    const totalAcquisitionsVAT = euAcquisitions.reduce((sum, inv) => sum + inv.totalVat, 0);
+    const totalSupplies = euSupplies.reduce((sum, inv) => sum + inv.totalNet, 0);
+    const totalSuppliesVAT = euSupplies.reduce((sum, inv) => sum + inv.totalVat, 0);
+
+    return {
+      period,
+      declarationType: DeclarationType.VAT_UE,
+      euAcquisitions: {
+        total: totalAcquisitions,
+        vat: totalAcquisitionsVAT,
+        count: euAcquisitions.length
+      },
+      euSupplies: {
+        total: totalSupplies,
+        vat: totalSuppliesVAT,
+        count: euSupplies.length
+      },
+      details: {
+        acquisitions: euAcquisitions,
+        supplies: euSupplies
+      }
+    };
+  }
+
+  /**
+   * Calculate PCC-3 (civil law transactions tax)
+   */
+  async calculatePCC3(tenantId: string, companyId: string, period: string): Promise<any> {
+    // Get civil law transactions for the quarter - using existing invoice data for now
+    const civilTransactions = await this.prisma.invoice.findMany({
+      where: {
+        tenant_id: tenantId,
+        company_id: companyId,
+        date: {
+          gte: new Date(period.split('-')[0] + '-' + period.split('-')[1] + '-01'),
+          lt: new Date(parseInt(period.split('-')[0]), parseInt(period.split('-')[1]) + 1, 1)
+        }
+      }
+    });
+
+    const totalTaxDue = civilTransactions.reduce((sum, t) => sum + (t.totalNet * 0.02), 0); // 2% PCC rate
+
+    return {
+      period,
+      declarationType: DeclarationType.PCC_3,
+      transactions: civilTransactions,
+      totalTaxDue,
+      transactionCount: civilTransactions.length,
+      taxRate: 0.02,
+      details: {
+        transactions: civilTransactions
+      }
+    };
+  }
+
+  /**
    * Add VAT register entry from invoice or manual input
    */
   async addVATRegisterEntry(tenantId: string, companyId: string, dto: CreateVATRegisterDto): Promise<any> {
@@ -318,7 +588,8 @@ export class TaxCalculationService {
         }
       },
       include: {
-        items: true
+        items: true,
+        buyer: true
       }
     });
 
@@ -333,8 +604,8 @@ export class TaxCalculationService {
             company_id: companyId,
             type: VATRegisterType.SPRZEDAZ,
             period: period,
-            counterpartyName: invoice.buyerName,
-            counterpartyNIP: invoice.buyerNip,
+            counterpartyName: invoice.buyer?.name || 'Unknown Buyer',
+            counterpartyNIP: invoice.buyer?.nip || null,
             invoiceNumber: `${invoice.series}${invoice.number}`,
             invoiceDate: invoice.date,
             netAmount: invoice.totalNet,
