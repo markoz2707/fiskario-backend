@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Request, Get, Param, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, Get, Param, HttpException, HttpStatus, UsePipes, ValidationPipe } from '@nestjs/common';
 import { InvoicingService } from './invoicing.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MobileTaxCalculationDto } from '../tax-rules/dto/mobile-tax-calculation.dto';
@@ -18,6 +18,11 @@ export class InvoicingController {
   // Mobile-specific endpoints
   @Post('mobile/calculate')
   @UseGuards(JwtAuthGuard)
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async calculateMobileInvoice(@Body() calculationDto: MobileTaxCalculationDto, @Request() req) {
     try {
       const tenant_id = req.user?.tenant_id || 'default-tenant';
@@ -40,6 +45,11 @@ export class InvoicingController {
 
   @Post('mobile/preview')
   @UseGuards(JwtAuthGuard)
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async previewMobileInvoice(@Body() calculationDto: MobileTaxCalculationDto, @Request() req) {
     try {
       const tenant_id = req.user?.tenant_id || 'default-tenant';
@@ -86,6 +96,11 @@ export class InvoicingController {
 
   @Post('mobile/validate')
   @UseGuards(JwtAuthGuard)
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async validateMobileInvoice(@Body() calculationDto: MobileTaxCalculationDto, @Request() req) {
     try {
       const tenant_id = req.user?.tenant_id || 'default-tenant';

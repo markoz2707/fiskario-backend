@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Patch, UseGuards, HttpException, HttpStatus, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Patch, UseGuards, HttpException, HttpStatus, Request, UsePipes, ValidationPipe } from '@nestjs/common';
 import { TaxRulesService } from './tax-rules.service';
 import { CreateTaxFormDto } from './dto/create-tax-form.dto';
 import { CreateTaxRuleDto } from './dto/create-tax-rule.dto';
@@ -66,6 +66,11 @@ export class TaxRulesController {
   // Mobile-specific tax calculation endpoints
   @Post('mobile/calculate')
   @UseGuards(JwtAuthGuard)
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async calculateTaxForMobile(
     @Body() calculationDto: MobileTaxCalculationDto,
     @Request() req,
@@ -101,6 +106,11 @@ export class TaxRulesController {
 
   @Post('mobile/sync')
   @UseGuards(JwtAuthGuard)
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async syncMobileTaxData(
     @Body() syncDto: MobileTaxSyncDto,
     @Request() req,
@@ -173,6 +183,11 @@ export class TaxRulesController {
 
   @Post('mobile/validate-calculation')
   @UseGuards(JwtAuthGuard)
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async validateMobileCalculation(@Body() calculationDto: MobileTaxCalculationDto) {
     try {
       return await this.taxRulesService.validateMobileCalculation(calculationDto);

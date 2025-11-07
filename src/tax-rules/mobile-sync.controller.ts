@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Request, Get, Param, HttpException, HttpStatus, Query } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Request, Get, Param, HttpException, HttpStatus, Query, UsePipes, ValidationPipe } from '@nestjs/common';
 import { TaxRulesService } from './tax-rules.service';
 import { MobileTaxSyncDto } from './dto/mobile-tax-calculation.dto';
 import { MobileErrorResponseDto, MobileSyncErrorDto } from './dto/mobile-error.dto';
@@ -10,6 +10,11 @@ export class MobileSyncController {
   constructor(private readonly taxRulesService: TaxRulesService) {}
 
   @Post('full-sync')
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async performFullSync(@Body() syncDto: MobileTaxSyncDto, @Request() req) {
     try {
       const tenant_id = req.user?.tenant_id || 'default-tenant';
@@ -31,11 +36,25 @@ export class MobileSyncController {
   }
 
   @Post('incremental-sync')
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async performIncrementalSync(@Body() syncDto: MobileTaxSyncDto, @Request() req) {
     try {
+      console.log('🔄 [MOBILE SYNC] Incremental sync request received:', {
+        companyId: syncDto.companyId,
+        deviceId: syncDto.deviceId,
+        lastSyncTimestamp: syncDto.lastSyncTimestamp,
+        hasPendingCalculations: !!(syncDto.pendingCalculations && syncDto.pendingCalculations.length > 0),
+        pendingCalculationsCount: syncDto.pendingCalculations?.length || 0,
+      });
+
       const tenant_id = req.user?.tenant_id || 'default-tenant';
       return await this.taxRulesService.performIncrementalSync(tenant_id, syncDto);
     } catch (error) {
+      console.error('❌ [MOBILE SYNC] Incremental sync error:', error);
       if (error instanceof HttpException) {
         throw error;
       }
@@ -74,6 +93,11 @@ export class MobileSyncController {
   }
 
   @Post('resolve-conflict')
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async resolveSyncConflict(
     @Body() conflictData: { deviceId: string; entityType: string; entityId: string; resolution: 'server_wins' | 'client_wins' | 'manual_merge' },
     @Request() req,
@@ -124,6 +148,11 @@ export class MobileSyncController {
   }
 
   @Post('force-sync')
+  @UsePipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields for mobile client compatibility
+    transform: true,
+  }))
   async forceSync(@Body() syncDto: MobileTaxSyncDto, @Request() req) {
     try {
       const tenant_id = req.user?.tenant_id || 'default-tenant';

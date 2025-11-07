@@ -373,4 +373,164 @@ export class InvoicingService {
 
     return baseFields;
   }
+
+  async getInvoices(tenant_id: string, filters?: {
+    companyId?: string;
+    buyerId?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    this.logger.log(`Getting invoices for tenant ${tenant_id} with filters:`, filters);
+
+    const whereClause: any = {
+      tenant_id,
+    };
+
+    // Add filters
+    if (filters?.companyId) {
+      whereClause.company_id = filters.companyId;
+    }
+
+    if (filters?.buyerId) {
+      whereClause.buyer_id = filters.buyerId;
+    }
+
+    if (filters?.status) {
+      whereClause.status = filters.status;
+    }
+
+    if (filters?.dateFrom || filters?.dateTo) {
+      whereClause.date = {};
+      if (filters.dateFrom) {
+        whereClause.date.gte = new Date(filters.dateFrom);
+      }
+      if (filters.dateTo) {
+        whereClause.date.lte = new Date(filters.dateTo);
+      }
+    }
+
+    const invoices = await this.prisma.invoice.findMany({
+      where: whereClause,
+      include: {
+        items: true,
+        buyer: true,
+        company: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: filters?.limit || 50,
+      skip: filters?.offset || 0,
+    });
+
+    return invoices;
+  }
+
+  async getInvoiceById(tenant_id: string, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: {
+        id: invoiceId,
+        tenant_id,
+      },
+      include: {
+        items: true,
+        buyer: true,
+        company: true,
+      },
+    });
+
+    if (!invoice) {
+      throw new Error(`Invoice with ID ${invoiceId} not found`);
+    }
+
+    return invoice;
+  }
+
+  async updateInvoice(tenant_id: string, invoiceId: string, data: any) {
+    this.logger.log(`Updating invoice ${invoiceId} for tenant ${tenant_id}`);
+
+    // Get existing invoice
+    const existingInvoice = await this.prisma.invoice.findFirst({
+      where: {
+        id: invoiceId,
+        tenant_id,
+      },
+    });
+
+    if (!existingInvoice) {
+      throw new Error(`Invoice with ID ${invoiceId} not found`);
+    }
+
+    // Calculate new totals if items are being updated
+    let totalNet = existingInvoice.totalNet;
+    let totalVat = existingInvoice.totalVat;
+    let totalGross = existingInvoice.totalGross;
+
+    if (data.items) {
+      const totals = this.calculateTotals(data.items);
+      totalNet = totals.totalNet;
+      totalVat = totals.totalVat;
+      totalGross = totals.totalGross;
+    }
+
+    // Update invoice
+    const updatedInvoice = await this.prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        number: data.number || existingInvoice.number,
+        series: data.series || existingInvoice.series,
+        date: data.date ? new Date(data.date) : existingInvoice.date,
+        dueDate: data.dueDate ? new Date(data.dueDate) : existingInvoice.dueDate,
+        totalNet,
+        totalVat,
+        totalGross,
+        status: data.status || existingInvoice.status,
+        // Update items if provided
+        ...(data.items && {
+          items: {
+            deleteMany: {},
+            create: data.items.map(item => ({
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              vatRate: item.vatRate,
+              gtu: item.gtu,
+              netAmount: item.quantity * item.unitPrice,
+              vatAmount: (item.quantity * item.unitPrice) * (item.vatRate / 100),
+              grossAmount: (item.quantity * item.unitPrice) * (1 + item.vatRate / 100),
+            })),
+          },
+        }),
+      },
+      include: {
+        items: true,
+        buyer: true,
+        company: true,
+      },
+    });
+
+    return updatedInvoice;
+  }
+
+  async deleteInvoice(tenant_id: string, invoiceId: string) {
+    this.logger.log(`Deleting invoice ${invoiceId} for tenant ${tenant_id}`);
+
+    // Check if invoice exists
+    const existingInvoice = await this.prisma.invoice.findFirst({
+      where: {
+        id: invoiceId,
+        tenant_id,
+      },
+    });
+
+    if (!existingInvoice) {
+      throw new Error(`Invoice with ID ${invoiceId} not found`);
+    }
+
+    // Delete invoice (this will cascade delete items due to schema setup)
+    await this.prisma.invoice.delete({
+      where: { id: invoiceId },
+    });
+  }
 }
