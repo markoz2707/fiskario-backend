@@ -1013,20 +1013,119 @@ model ProfilZaufanyProfile {
   }
 
 model EPUAPService {
-      id                String   @id @default(cuid())
-      serviceId         String   @unique
-      name              String
-      description       String
-      category          String   // tax, social_insurance, business_registration
-      isAvailable       Boolean  @default(true)
-      requiredAuthLevel String   @default("basic") // basic, significant, high
-      endpointUrl       String
-      documentationUrl  String?
-      estimatedTime     Int?     // Processing time in minutes
-      createdAt         DateTime @default(now())
-      updatedAt         DateTime @updatedAt
+       id                String   @id @default(cuid())
+       serviceId         String   @unique
+       name              String
+       description       String
+       category          String   // tax, social_insurance, business_registration
+       isAvailable       Boolean  @default(true)
+       requiredAuthLevel String   @default("basic") // basic, significant, high
+       endpointUrl       String
+       documentationUrl  String?
+       estimatedTime     Int?     // Processing time in minutes
+       createdAt         DateTime @default(now())
+       updatedAt         DateTime @updatedAt
 
-      @@index([category])
-      @@index([isAvailable])
-      @@index([requiredAuthLevel])
-  }
+       @@index([category])
+       @@index([isAvailable])
+       @@index([requiredAuthLevel])
+   }
+
+model Workflow {
+  id            String   @id @default(cuid())
+  tenant_id     String
+  type          String   // invoice_creation, tax_calculation, ksef_submission, customer_onboarding
+  state         String   @default("draft") // draft, pending_validation, validation_failed, pending_approval, approved, processing, completed, failed, cancelled
+  trigger       String   @default("manual") // manual, scheduled, event_based, api_call
+  data          Json     // Workflow-specific data
+  template_id   String?
+  company_id    String?
+  customer_id   String?
+  steps         Json     // Array of workflow steps with their states
+  executions    WorkflowExecution[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenant_id])
+  @@index([type])
+  @@index([state])
+  @@index([company_id])
+  @@index([customer_id])
+}
+
+model WorkflowTemplate {
+  id            String   @id @default(cuid())
+  tenant_id     String
+  name          String
+  description   String?
+  type          String   // invoice_creation, tax_calculation, ksef_submission, customer_onboarding
+  steps         Json     // Template steps definition
+  defaultSettings Json?  // Default settings for the template
+  version       String   @default("1.0")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenant_id])
+  @@index([type])
+  @@index([isActive])
+}
+
+model WorkflowExecution {
+   id            String   @id @default(cuid())
+   tenant_id     String
+   workflow_id   String
+   workflow      Workflow @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+   step_id       String
+   input_data    Json?
+   output_data   Json?
+   status        String   @default("pending") // pending, running, completed, failed
+   error_message String?
+   started_at    DateTime?
+   completed_at  DateTime?
+   executed_by   String?
+   createdAt     DateTime @default(now())
+   updatedAt     DateTime @updatedAt
+
+   @@index([tenant_id])
+   @@index([workflow_id])
+   @@index([step_id])
+   @@index([status])
+}
+
+model FeatureFlag {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  description   String
+  enabled       Boolean  @default(false)
+  rolloutPercentage Float @default(100)
+  conditions    Json?   // Array of condition objects
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([name])
+  @@index([enabled])
+}
+
+model MobileSyncSession {
+  id            String   @id @default(cuid())
+  tenant_id     String
+  deviceId      String
+  companyId     String
+  sessionType   String   // full_sync, incremental_sync, force_sync
+  status        String   @default("in_progress") // in_progress, completed, failed
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+  lastSyncTimestamp DateTime?
+  syncedRecords Int      @default(0)
+  failedRecords Int      @default(0)
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenant_id])
+  @@index([deviceId])
+  @@index([companyId])
+  @@index([status])
+  @@index([startedAt])
+}

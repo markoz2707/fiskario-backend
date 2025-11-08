@@ -21,6 +21,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     console.error(`🚨 [${requestId}] Status: ${status}`);
     console.error(`🚨 [${requestId}] Message: ${message}`);
 
+    // Enhanced error categorization for new features
+    if (request.url.includes('/management-dashboard') ||
+        request.url.includes('/workflow-automation') ||
+        request.url.includes('/performance-optimization') ||
+        request.url.includes('/mobile-sync') ||
+        request.url.includes('/feature-flags')) {
+      console.error(`⚠️  [${requestId}] New Feature Error: ${request.method} ${request.url}`);
+    }
+
     // Log request details for debugging
     if (request.headers.authorization) {
       console.error(`🔐 [${requestId}] Auth Header Present: ${request.headers.authorization.startsWith('Bearer ')}`);

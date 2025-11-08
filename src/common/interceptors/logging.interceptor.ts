@@ -67,17 +67,26 @@ export class LoggingInterceptor implements NestInterceptor {
     };
 
     // Log request start
-    console.log(`🚀 [${requestId}] ${request.method} ${request.url} - Started`);
-
-    // Log request details if body exists
-    if (request.body && Object.keys(request.body).length > 0) {
-      console.log(`📝 [${requestId}] Request Body:`, JSON.stringify(this.sanitizeData(request.body), null, 2));
-    }
-
-    // Log query parameters if they exist
-    if (request.query && Object.keys(request.query).length > 0) {
-      console.log(`🔍 [${requestId}] Query Params:`, JSON.stringify(request.query, null, 2));
-    }
+      console.log(`🚀 [${requestId}] ${request.method} ${request.url} - Started`);
+  
+      // Enhanced logging for new features
+      if (request.url.includes('/management-dashboard') ||
+          request.url.includes('/workflow-automation') ||
+          request.url.includes('/performance-optimization') ||
+          request.url.includes('/mobile-sync') ||
+          request.url.includes('/feature-flags')) {
+        console.log(`✨ [${requestId}] New Feature API Call: ${request.method} ${request.url}`);
+      }
+  
+      // Log request details if body exists
+      if (request.body && Object.keys(request.body).length > 0) {
+        console.log(`📝 [${requestId}] Request Body:`, JSON.stringify(this.sanitizeData(request.body), null, 2));
+      }
+  
+      // Log query parameters if they exist
+      if (request.query && Object.keys(request.query).length > 0) {
+        console.log(`🔍 [${requestId}] Query Params:`, JSON.stringify(request.query, null, 2));
+      }
 
     return next.handle().pipe(
       timeout(30000), // 30 second timeout
