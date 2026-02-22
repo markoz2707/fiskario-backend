@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as forge from 'node-forge';
 
 export interface SignatureConfig {
   signatureType: 'profil_zaufany' | 'qes' | 'none';
@@ -91,6 +92,22 @@ export class XMLSigningService {
     // For Profil Zaufany, we need to integrate with PZP API
     // This is a simplified implementation - in production, you would integrate with actual PZP service
 
+    // If a certificate is available, extract real info from it
+    let subject = 'Profil Zaufany - podpis zaufany';
+    let issuer = 'Ministerstwo Cyfryzacji - Profil Zaufany';
+    let serialNumber = `PZP_${signatureId}`;
+
+    if (config.certificatePath) {
+      try {
+        const certInfo = await this.extractCertificateInfo(config.certificatePath);
+        subject = certInfo.subject;
+        issuer = certInfo.issuer;
+        serialNumber = certInfo.serialNumber;
+      } catch (error) {
+        this.logger.warn('Could not extract certificate info for Profil Zaufany signing, using defaults');
+      }
+    }
+
     const signatureBlock = `
   <Podpisanie>
     <SignatureId>${signatureId}</SignatureId>
@@ -98,9 +115,9 @@ export class XMLSigningService {
     <SigningTime>${signingTime.toISOString()}</SigningTime>
     <TrustedProfileId>${config.trustedProfileId}</TrustedProfileId>
     <Certificate>
-      <Subject>Profil Zaufany User</Subject>
-      <Issuer>Ministerstwo Cyfryzacji</Issuer>
-      <SerialNumber>PZP_${signatureId}</SerialNumber>
+      <Subject>${subject}</Subject>
+      <Issuer>${issuer}</Issuer>
+      <SerialNumber>${serialNumber}</SerialNumber>
     </Certificate>
   </Podpisanie>`;
 
@@ -199,17 +216,17 @@ export class XMLSigningService {
     serialNumber: string;
   }> {
     try {
-      // This is a simplified implementation
-      // In production, you would use a proper certificate parsing library
-      const certificate = fs.readFileSync(certificatePath);
+      const certificatePem = fs.readFileSync(certificatePath, 'utf8');
 
-      // For now, return mock data - implement proper certificate parsing as needed
+      // Parse the PEM certificate using node-forge
+      const cert = forge.pki.certificateFromPem(certificatePem);
+
       return {
-        issuer: 'Certificate Authority',
-        subject: 'JPK Signer',
-        validFrom: new Date(),
-        validTo: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year validity
-        serialNumber: `CERT_${Date.now()}`
+        issuer: cert.issuer.getField('CN')?.value || 'Unknown',
+        subject: cert.subject.getField('CN')?.value || 'Unknown',
+        validFrom: cert.validity.notBefore,
+        validTo: cert.validity.notAfter,
+        serialNumber: cert.serialNumber
       };
     } catch (error) {
       this.logger.error(`Error extracting certificate info: ${error.message}`);

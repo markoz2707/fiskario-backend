@@ -11,6 +11,7 @@ import { PLReportFiltersDto } from './dto/pl-report.dto';
 import { VATRegisterFiltersDto } from './dto/vat-register-report.dto';
 import { CashflowFiltersDto } from './dto/cashflow-report.dto';
 import { ReceivablesPayablesFiltersDto } from './dto/receivables-payables-report.dto';
+import { PrismaService } from '../prisma/prisma.service';
 import type { Request, Response } from 'express';
 import * as path from 'path';
 
@@ -29,6 +30,7 @@ export class ReportsController {
     private readonly cashflowReportService: CashflowReportService,
     private readonly receivablesPayablesReportService: ReceivablesPayablesReportService,
     private readonly exportService: ExportService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private getUserInfo(req: Request & { user: AuthenticatedUser }) {
@@ -573,11 +575,13 @@ export class ReportsController {
   }
 
   private async getCompanyInfo(tenantId: string, companyId: string) {
-    // This would typically use a companies service
-    // For now, return a basic structure
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, tenant_id: tenantId },
+    });
     return {
-      name: 'Company Name', // Would be fetched from database
-      nip: '1234567890', // Would be fetched from database
+      name: company?.name || 'Brak danych firmy',
+      nip: company?.nip || '',
+      address: company?.address || '',
     };
   }
 

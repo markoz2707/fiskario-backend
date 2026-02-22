@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { ConfigService } from '@nestjs/config';
 
@@ -38,6 +38,8 @@ interface RequestWithSession extends Request {
 
 @Injectable()
 export class ApiLoggerMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(ApiLoggerMiddleware.name);
+
   constructor(private configService: ConfigService) {}
 
   use(req: Request, res: Response, next: NextFunction) {
@@ -74,9 +76,9 @@ export class ApiLoggerMiddleware implements NestMiddleware {
       },
     };
 
-    console.log(`🚀 [${requestId}] ${req.method} ${req.url} - Started`);
+    this.logger.log(`[${requestId}] ${req.method} ${req.url} - Started`);
     if (Object.keys(req.body || {}).length > 0) {
-      console.log(`📝 [${requestId}] Request Body:`, JSON.stringify(requestLog.request.body, null, 2));
+      this.logger.log(`[${requestId}] Request Body: ${JSON.stringify(requestLog.request.body, null, 2)}`);
     }
 
     // Capture response data
@@ -121,7 +123,7 @@ export class ApiLoggerMiddleware implements NestMiddleware {
         },
       };
 
-      console.error(`❌ [${requestId}] ${req.method} ${req.url} - Error:`, errorLog);
+      this.logger.error(`[${requestId}] ${req.method} ${req.url} - Error: ${JSON.stringify(errorLog)}`);
     });
 
     next();
@@ -145,13 +147,13 @@ export class ApiLoggerMiddleware implements NestMiddleware {
     // Enhanced JWT token logging for debugging
     const authHeader = req.headers.authorization;
     if (authHeader) {
-      console.log(`🔐 [${this.generateRequestId()}] Auth Header Present: ${authHeader.startsWith('Bearer ')}`);
-      console.log(`🔐 [${this.generateRequestId()}] Auth Header Length: ${authHeader.length}`);
+      this.logger.log(`Auth Header Present: ${authHeader.startsWith('Bearer ')}`);
+      this.logger.log(`Auth Header Length: ${authHeader.length}`);
 
       if (authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
-        console.log(`🔐 [${this.generateRequestId()}] Token Prefix: ${token.substring(0, 20)}...`);
-        console.log(`🔐 [${this.generateRequestId()}] Token Valid JWT Format: ${this.isValidJWTFormat(token)}`);
+        this.logger.log(`Token Prefix: ${token.substring(0, 20)}...`);
+        this.logger.log(`Token Valid JWT Format: ${this.isValidJWTFormat(token)}`);
 
         try {
           // In a real implementation, you might decode the JWT to get user info
@@ -160,28 +162,24 @@ export class ApiLoggerMiddleware implements NestMiddleware {
             const user = (req as any).user;
             context.userId = user.id || user.userId || user.sub;
             context.tenantId = user.tenantId || user.companyId;
-            console.log(`👤 [${this.generateRequestId()}] User Context Extracted:`, {
-              userId: context.userId,
-              tenantId: context.tenantId,
-              hasRoles: !!user.roles
-            });
+            this.logger.log(`User Context Extracted: userId=${context.userId}, tenantId=${context.tenantId}, hasRoles=${!!user.roles}`);
           } else {
-            console.warn(`⚠️ [${this.generateRequestId()}] Bearer token present but no user object found`);
+            this.logger.warn('Bearer token present but no user object found');
           }
         } catch (error) {
-          console.error(`❌ [${this.generateRequestId()}] JWT parsing error:`, error.message);
+          this.logger.error(`JWT parsing error: ${error.message}`, error.stack);
         }
       } else {
-        console.warn(`⚠️ [${this.generateRequestId()}] Invalid auth header format: ${authHeader.substring(0, 50)}...`);
+        this.logger.warn(`Invalid auth header format: ${authHeader.substring(0, 50)}...`);
       }
     } else {
-      console.log(`🚫 [${this.generateRequestId()}] No authorization header present`);
+      this.logger.log('No authorization header present');
     }
 
     // Extract session ID if available
     if ((req as RequestWithSession).sessionID) {
       context.sessionId = (req as RequestWithSession).sessionID;
-      console.log(`🔗 [${this.generateRequestId()}] Session ID: ${context.sessionId}`);
+      this.logger.log(`Session ID: ${context.sessionId}`);
     }
 
     return context;
@@ -271,26 +269,26 @@ export class ApiLoggerMiddleware implements NestMiddleware {
     const statusEmoji = this.getStatusEmoji(response.statusCode);
     const responseTime = `${response.responseTime}ms`;
 
-    console.log(`${statusEmoji} [${requestId}] ${method} ${url} - ${response.statusCode} - ${responseTime}`);
+    this.logger.log(`${statusEmoji} [${requestId}] ${method} ${url} - ${response.statusCode} - ${responseTime}`);
 
     // Log user context if available
     if (logData.userContext && (logData.userContext.userId || logData.userContext.tenantId)) {
-      console.log(`👤 [${requestId}] User Context:`, logData.userContext);
+      this.logger.log(`[${requestId}] User Context: ${JSON.stringify(logData.userContext)}`);
     }
 
     // Log response size if significant
     if (response.size && response.size > 1024) {
-      console.log(`📊 [${requestId}] Response Size: ${(response.size / 1024).toFixed(2)}KB`);
+      this.logger.log(`[${requestId}] Response Size: ${(response.size / 1024).toFixed(2)}KB`);
     }
 
     // Log performance warning for slow requests
     if (response.responseTime > 1000) {
-      console.warn(`⚠️  [${requestId}] Slow Request: ${responseTime}`);
+      this.logger.warn(`[${requestId}] Slow Request: ${responseTime}`);
     }
 
     // Log errors if any
     if (logData.error) {
-      console.error(`❌ [${requestId}] Error:`, logData.error.message);
+      this.logger.error(`[${requestId}] Error: ${logData.error.message}`);
     }
   }
 

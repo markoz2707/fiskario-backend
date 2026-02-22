@@ -23,11 +23,16 @@ import { DataManagementModule } from './data-management/data-management.module';
 import { MobileSyncModule } from './mobile-sync/mobile-sync.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { IntegrationServicesModule } from './integration-services/integration-services.module';
+import { KPiRModule } from './kpir/kpir.module';
+import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
+import { AnnualTaxModule } from './annual-tax/annual-tax.module';
+import { TaxOptimizationModule } from './tax-optimization/tax-optimization.module';
+import { AiChatModule } from './ai-chat/ai-chat.module';
 import { ApiLoggerMiddleware } from './common/middleware/api-logger.middleware';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, PrismaModule, CompaniesModule, InvoicingModule, KsefModule, DeclarationsModule, ZusModule, OcrLlmProxyModule, ReportsModule, NotificationsModule, SecurityModule, TaxRulesModule, DigitalSignatureModule, ManagementDashboardModule, WorkflowAutomationModule, PerformanceOptimizationModule, DataManagementModule, MobileSyncModule, FeatureFlagsModule, IntegrationServicesModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, PrismaModule, CompaniesModule, InvoicingModule, KsefModule, DeclarationsModule, ZusModule, OcrLlmProxyModule, ReportsModule, NotificationsModule, SecurityModule, TaxRulesModule, DigitalSignatureModule, ManagementDashboardModule, WorkflowAutomationModule, PerformanceOptimizationModule, DataManagementModule, MobileSyncModule, FeatureFlagsModule, IntegrationServicesModule, KPiRModule, FixedAssetsModule, AnnualTaxModule, TaxOptimizationModule, AiChatModule],
   controllers: [AppController],
   providers: [
     AppService,

@@ -13,6 +13,7 @@ import {
   HttpException
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PrismaService } from '../prisma/prisma.service';
 import { TaxCalculationService } from './services/tax-calculation.service';
 import { XMLGenerationService } from './services/xml-generation.service';
 import {
@@ -28,6 +29,7 @@ export class DeclarationsController {
   constructor(
     private readonly taxCalculationService: TaxCalculationService,
     private readonly xmlGenerationService: XMLGenerationService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -669,13 +671,14 @@ export class DeclarationsController {
    * Helper method to get company information
    */
   private async getCompanyInfo(tenantId: string, companyId: string) {
-    // This would typically use a CompanyService
-    // For now, return a basic structure
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, tenant_id: tenantId },
+    });
     return {
-      nip: '1234567890', // This should come from the actual company data
-      name: 'Company Name',
-      regon: '',
-      countryCode: 'PL'
+      nip: company?.nip || '',
+      name: company?.name || 'Brak danych firmy',
+      regon: company?.regon || '',
+      countryCode: 'PL',
     };
   }
 }

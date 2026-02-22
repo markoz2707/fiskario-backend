@@ -50,19 +50,26 @@ export class MobileSyncService {
         await this.prisma.workflow.upsert({
           where: { id: state.id },
           update: {
-            status: state.status,
-            currentStep: state.currentStep,
-            progress: state.progress,
+            state: state.state || 'draft',
+            data: {
+              ...(state.data || {}),
+              currentStep: state.currentStep,
+              progress: state.progress,
+            },
             updatedAt: new Date(),
           },
           create: {
             id: state.id,
-            tenantId,
+            tenant_id: tenantId,
             type: state.type,
-            status: state.status,
-            currentStep: state.currentStep,
-            progress: state.progress,
-            data: state.data,
+            state: state.state || 'draft',
+            trigger: state.trigger || 'manual',
+            data: {
+              ...(state.data || {}),
+              currentStep: state.currentStep,
+              progress: state.progress,
+            },
+            steps: state.steps || [],
           },
         });
 
@@ -148,10 +155,19 @@ export class MobileSyncService {
       try {
         await this.prisma.workflow.upsert({
           where: { id: workflow.id },
-          update: workflow,
+          update: {
+            state: workflow.state || 'draft',
+            data: workflow.data || {},
+            steps: workflow.steps || [],
+            updatedAt: new Date(),
+          },
           create: {
             ...workflow,
-            tenantId,
+            tenant_id: tenantId,
+            state: workflow.state || 'draft',
+            trigger: workflow.trigger || 'manual',
+            data: workflow.data || {},
+            steps: workflow.steps || [],
           },
         });
         synced++;
@@ -198,12 +214,12 @@ export class MobileSyncService {
   async getSyncStatus(tenantId: string, deviceId: string): Promise<any> {
     try {
       // Get last sync timestamp for device
-      const lastSync = await this.cacheService.get(`sync_status:${deviceId}`, { tenantId });
+      const lastSync = await this.cacheService.get<{ lastSyncTimestamp: number }>(`sync_status:${deviceId}`, { tenantId });
 
       // Get pending changes count
       const pendingWorkflows = await this.prisma.workflow.count({
         where: {
-          tenantId,
+          tenant_id: tenantId,
           updatedAt: {
             gt: lastSync ? new Date(lastSync.lastSyncTimestamp) : new Date(0),
           },
@@ -275,14 +291,14 @@ export class MobileSyncService {
 
       const workflows = await this.prisma.workflow.findMany({
         where: {
-          tenantId,
+          tenant_id: tenantId,
           updatedAt: {
             gt: sinceDate,
           },
         },
         select: {
           id: true,
-          status: true,
+          state: true,
           updatedAt: true,
         },
       });

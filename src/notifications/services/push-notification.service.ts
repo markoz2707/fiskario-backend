@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface NotificationTemplate {
@@ -28,7 +29,50 @@ export interface NotificationPayload {
 export class PushNotificationService {
   private readonly logger = new Logger(PushNotificationService.name);
 
-  constructor(private prisma: PrismaService) {}
+  private firebaseApp: any = null;
+  private fcmEnabled = false;
+
+  constructor(
+    private prisma: PrismaService,
+    private configService: ConfigService,
+  ) {
+    this.initializeFirebase();
+  }
+
+  private initializeFirebase(): void {
+    const projectId = this.configService.get<string>('FIREBASE_PROJECT_ID');
+
+    if (!projectId) {
+      this.logger.warn(
+        'FIREBASE_PROJECT_ID not configured - push notifications will be logged only, not delivered to devices',
+      );
+      return;
+    }
+
+    try {
+      // Conditionally import firebase-admin only when configured
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const admin = require('firebase-admin');
+
+      if (!admin.apps.length) {
+        this.firebaseApp = admin.initializeApp({
+          credential: admin.credential.applicationDefault(),
+          projectId,
+        });
+      } else {
+        this.firebaseApp = admin.app();
+      }
+
+      this.fcmEnabled = true;
+      this.logger.log('Firebase Cloud Messaging initialized successfully');
+    } catch (error) {
+      this.logger.warn(
+        `Firebase Admin SDK not available or failed to initialize: ${error.message}. ` +
+        'Push notifications will be logged only. Install firebase-admin to enable FCM delivery.',
+      );
+      this.fcmEnabled = false;
+    }
+  }
 
   async createTemplate(template: Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt'>, tenantId: string): Promise<NotificationTemplate> {
     try {
@@ -52,9 +96,15 @@ export class PushNotificationService {
     }
   }
 
-  async getTemplates(type?: string): Promise<NotificationTemplate[]> {
+  async getTemplates(tenantId?: string, type?: string): Promise<NotificationTemplate[]> {
     try {
-      const whereClause: any = { isActive: true };
+      const whereClause: any = {
+        isActive: true,
+        // Filter by tenant: show templates belonging to the tenant OR system-wide templates (tenant_id = 'system')
+        ...(tenantId
+          ? { OR: [{ tenant_id: tenantId }, { tenant_id: 'system' }] }
+          : {}),
+      };
       if (type) {
         whereClause.type = type;
       }
@@ -205,7 +255,7 @@ export class PushNotificationService {
   ): Promise<void> {
     try {
       // Find the template
-      const templates = await this.getTemplates();
+      const templates = await this.getTemplates(tenantId);
       const template = templates.find(t => t.name === templateName);
 
       if (!template) {
@@ -326,24 +376,112 @@ export class PushNotificationService {
   }
 
   private async sendPushNotification(payload: NotificationPayload): Promise<void> {
-    // Here you would integrate with actual push notification services
-    // For now, we'll just log the notification
+    if (!this.fcmEnabled || !this.firebaseApp) {
+      this.logger.warn(
+        `[PUSH NOTIFICATION - NOT DELIVERED] Firebase not configured. ` +
+        `To: ${payload.userId}, Title: ${payload.title}, Body: ${payload.body}, Type: ${payload.type}`,
+      );
+      return;
+    }
 
-    this.logger.log(`[PUSH NOTIFICATION] To: ${payload.userId}`);
-    this.logger.log(`[PUSH NOTIFICATION] Title: ${payload.title}`);
-    this.logger.log(`[PUSH NOTIFICATION] Body: ${payload.body}`);
-    this.logger.log(`[PUSH NOTIFICATION] Type: ${payload.type}`);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const admin = require('firebase-admin');
+      const messaging = admin.messaging(this.firebaseApp);
 
-    // Example integrations you might add:
-    // - Firebase Cloud Messaging (FCM)
-    // - Apple Push Notification Service (APNs)
-    // - Microsoft Push Notification Service (MPNS)
-    // - Web Push API
+      // Retrieve user's device tokens from the database
+      // Device tokens are stored in Notification records with device_token data
+      const userNotifications = await this.prisma.notification.findMany({
+        where: {
+          user_id: payload.userId,
+          tenant_id: payload.tenantId,
+          data: {
+            path: ['deviceToken'],
+            not: 'null' as any,
+          },
+        },
+        select: { data: true },
+        distinct: ['data'],
+        take: 10,
+      });
 
-    // For production, you would:
-    // 1. Get user's device tokens from database
-    // 2. Send push notification via chosen service
-    // 3. Handle delivery confirmations and failures
+      // Extract unique device tokens from notification data
+      const deviceTokens: string[] = [];
+      for (const notification of userNotifications) {
+        const data = notification.data as Record<string, any> | null;
+        if (data?.deviceToken && typeof data.deviceToken === 'string') {
+          deviceTokens.push(data.deviceToken);
+        }
+      }
+
+      if (deviceTokens.length === 0) {
+        this.logger.debug(
+          `No device tokens found for user ${payload.userId} - push notification not sent`,
+        );
+        return;
+      }
+
+      // Build FCM message
+      const fcmMessage = {
+        notification: {
+          title: payload.title,
+          body: payload.body,
+        },
+        data: {
+          type: payload.type,
+          userId: payload.userId,
+          tenantId: payload.tenantId,
+          ...(payload.data
+            ? Object.fromEntries(
+                Object.entries(payload.data).map(([k, v]) => [k, String(v)]),
+              )
+            : {}),
+        },
+        android: {
+          priority: payload.priority === 'high' ? ('high' as const) : ('normal' as const),
+          notification: {
+            channelId: 'fiskario-notifications',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              alert: {
+                title: payload.title,
+                body: payload.body,
+              },
+              sound: 'default',
+              ...(payload.priority === 'high' ? { 'content-available': 1 } : {}),
+            },
+          },
+        },
+        tokens: deviceTokens,
+      };
+
+      const response = await messaging.sendEachForMulticast(fcmMessage);
+
+      this.logger.log(
+        `[FCM] Push notification sent to user ${payload.userId}: ` +
+        `${response.successCount} delivered, ${response.failureCount} failed`,
+      );
+
+      // Log failures for debugging
+      if (response.failureCount > 0) {
+        response.responses.forEach((resp: any, idx: number) => {
+          if (!resp.success) {
+            this.logger.warn(
+              `[FCM] Failed to send to token ${deviceTokens[idx]?.substring(0, 10)}...: ${resp.error?.message}`,
+            );
+          }
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `[FCM] Error sending push notification to user ${payload.userId}: ${error.message}`,
+        error.stack,
+      );
+      // Don't throw - push notification failure should not break the notification flow
+    }
   }
 
   async initializeDefaultTemplates(): Promise<void> {

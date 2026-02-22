@@ -37,12 +37,12 @@ export class LazyLoadingService {
 
         // Log lazy loading performance
         if (executionTime > 500) {
-          console.warn(`Slow lazy load for ${propertyKey}: ${executionTime}ms`);
+          new Logger('LazyLoading').warn(`Slow lazy load for ${propertyKey}: ${executionTime}ms`);
         }
 
         return result;
       } catch (error) {
-        console.error(`Lazy load error for ${propertyKey}:`, error);
+        new Logger('LazyLoading').error(`Lazy load error for ${propertyKey}: ${error instanceof Error ? error.message : error}`, error instanceof Error ? error.stack : undefined);
         throw error;
       }
     };

@@ -35,18 +35,19 @@ export class AuthService {
       timestamp: new Date().toISOString()
     };
 
+    const fullMessage = (context || extra)
+      ? `${logMessage} ${JSON.stringify(logData)}`
+      : logMessage;
+
     switch (level) {
       case 'log':
-        this.logger.log(logMessage);
-        if (context || extra) console.log(logMessage, JSON.stringify(logData, null, 2));
+        this.logger.log(fullMessage);
         break;
       case 'warn':
-        this.logger.warn(logMessage);
-        if (context || extra) console.warn(logMessage, JSON.stringify(logData, null, 2));
+        this.logger.warn(fullMessage);
         break;
       case 'error':
-        this.logger.error(logMessage);
-        if (context || extra) console.error(logMessage, JSON.stringify(logData, null, 2));
+        this.logger.error(fullMessage);
         break;
     }
   }

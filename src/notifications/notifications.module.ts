@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { NotificationsController } from './notifications.controller';
 import { PushNotificationService } from './services/push-notification.service';
 import { DeadlineManagementService } from './services/deadline-management.service';
@@ -6,7 +7,7 @@ import { StatusCenterService } from './services/status-center.service';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ConfigModule],
   controllers: [NotificationsController],
   providers: [
     PushNotificationService,

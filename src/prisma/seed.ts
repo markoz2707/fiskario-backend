@@ -1,10 +1,12 @@
 import { PrismaClient } from '../../generated/prisma';
+import { Logger } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
+const logger = new Logger('PrismaSeed');
 
 async function main() {
-  console.log('🌱 Starting database seeding...');
+  logger.log('Starting database seeding...');
 
   // Create admin user
   const adminPassword = await bcrypt.hash('admin123', 12);
@@ -20,7 +22,7 @@ async function main() {
     },
   });
 
-  console.log('✅ Created admin user:', adminUser.email);
+  logger.log(`Created admin user: ${adminUser.email}`);
 
   // Create test company
   const existingCompany = await prisma.company.findFirst({
@@ -44,7 +46,7 @@ async function main() {
     });
   }
 
-  console.log('✅ Created test company:', testCompany.name);
+  logger.log(`Created test company: ${testCompany.name}`);
 
   // Create sample invoices
   const sampleInvoices = [
@@ -85,7 +87,7 @@ async function main() {
       },
     });
 
-    console.log(`✅ Created invoice: ${invoice.number} - ${invoice.totalGross} PLN`);
+    logger.log(`Created invoice: ${invoice.number} - ${invoice.totalGross} PLN`);
   }
 
   // Create sample ZUS contributions
@@ -127,7 +129,7 @@ async function main() {
       },
     });
 
-    console.log(`✅ Created ZUS contribution: ${zus.period} - Total: ${zus.emerytalnaEmployer + zus.emerytalnaEmployee + zus.rentowaEmployer + zus.rentowaEmployee + zus.chorobowaEmployee + zus.zdrowotnaEmployee} PLN`);
+    logger.log(`Created ZUS contribution: ${zus.period} - Total: ${zus.emerytalnaEmployer + zus.emerytalnaEmployee + zus.rentowaEmployer + zus.rentowaEmployee + zus.chorobowaEmployee + zus.zdrowotnaEmployee} PLN`);
   }
 
   // Create sample tax declarations
@@ -159,7 +161,7 @@ async function main() {
       },
     });
 
-    console.log(`✅ Created declaration: ${declaration.type} for ${declaration.period}`);
+    logger.log(`Created declaration: ${declaration.type} for ${declaration.period}`);
   }
 
   // Create sample employees
@@ -203,7 +205,7 @@ async function main() {
     });
 
     createdEmployees.push(employee);
-    console.log(`✅ Created employee: ${employee.firstName} ${employee.lastName}`);
+    logger.log(`Created employee: ${employee.firstName} ${employee.lastName}`);
   }
 
   // Create sample ZUS registrations
@@ -295,7 +297,7 @@ async function main() {
       },
     });
 
-    console.log(`✅ Created ZUS registration: ${registration.formType} for ${registration.employee_id}`);
+    logger.log(`Created ZUS registration: ${registration.formType} for ${registration.employee_id}`);
   }
 
   // Create sample notifications
@@ -327,15 +329,15 @@ async function main() {
       },
     });
 
-    console.log(`✅ Created notification: ${notification.title}`);
+    logger.log(`Created notification: ${notification.title}`);
   }
 
-  console.log('🎉 Database seeding completed successfully!');
+  logger.log('Database seeding completed successfully!');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Error during database seeding:', e);
+    logger.error('Error during database seeding', e instanceof Error ? e.stack : String(e));
     process.exit(1);
   })
   .finally(async () => {

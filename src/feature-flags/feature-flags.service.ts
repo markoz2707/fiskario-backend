@@ -64,7 +64,7 @@ export class FeatureFlagsService {
           description: dbFlag.description,
           enabled: dbFlag.enabled,
           rolloutPercentage: dbFlag.rolloutPercentage,
-          conditions: dbFlag.conditions as FeatureFlagCondition[],
+          conditions: dbFlag.conditions as unknown as FeatureFlagCondition[],
           createdAt: dbFlag.createdAt,
           updatedAt: dbFlag.updatedAt,
         };
@@ -108,7 +108,7 @@ export class FeatureFlagsService {
           description: flagData.description,
           enabled: flagData.enabled,
           rolloutPercentage: flagData.rolloutPercentage,
-          conditions: flagData.conditions,
+          conditions: flagData.conditions ? JSON.parse(JSON.stringify(flagData.conditions)) : undefined,
           updatedAt: new Date(),
         },
         create: {
@@ -116,7 +116,7 @@ export class FeatureFlagsService {
           description: flagData.description || '',
           enabled: flagData.enabled || false,
           rolloutPercentage: flagData.rolloutPercentage || 100,
-          conditions: flagData.conditions || [],
+          conditions: JSON.parse(JSON.stringify(flagData.conditions || [])),
         },
       });
 
@@ -129,7 +129,7 @@ export class FeatureFlagsService {
         description: flag.description,
         enabled: flag.enabled,
         rolloutPercentage: flag.rolloutPercentage,
-        conditions: flag.conditions as FeatureFlagCondition[],
+        conditions: flag.conditions as unknown as FeatureFlagCondition[],
         createdAt: flag.createdAt,
         updatedAt: flag.updatedAt,
       };
@@ -152,7 +152,7 @@ export class FeatureFlagsService {
         description: flag.description,
         enabled: flag.enabled,
         rolloutPercentage: flag.rolloutPercentage,
-        conditions: flag.conditions as FeatureFlagCondition[],
+        conditions: flag.conditions as unknown as FeatureFlagCondition[],
         createdAt: flag.createdAt,
         updatedAt: flag.updatedAt,
       }));

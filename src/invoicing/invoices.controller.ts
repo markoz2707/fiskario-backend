@@ -1,20 +1,18 @@
-import { Controller, Get, Post, Put, Delete, Body, UseGuards, Request, Param, Query, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Logger, Post, Put, Delete, Body, UseGuards, Request, Param, Query, HttpException, HttpStatus } from '@nestjs/common';
 import { InvoicingService } from './invoicing.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('invoices')
 @UseGuards(JwtAuthGuard)
 export class InvoicesController {
+  private readonly logger = new Logger(InvoicesController.name);
+
   constructor(private readonly invoicingService: InvoicingService) {}
 
   @Get()
   async getInvoices(@Request() req, @Query() queryParams) {
     try {
-      console.log('📋 [INVOICES] GET request received:', {
-        queryParams,
-        user: req.user?.email,
-        tenantId: req.user?.tenant_id,
-      });
+      this.logger.log(`[INVOICES] GET request received: user=${req.user?.email}, tenantId=${req.user?.tenant_id}, queryParams=${JSON.stringify(queryParams)}`);
 
       const tenant_id = req.user?.tenant_id || 'default-tenant';
 
@@ -23,7 +21,7 @@ export class InvoicesController {
       // Extract query parameters
       if (queryParams.companyId) {
         filters.companyId = queryParams.companyId;
-        console.log('🏢 [INVOICES] Filtering by companyId:', queryParams.companyId);
+        this.logger.log(`[INVOICES] Filtering by companyId: ${queryParams.companyId}`);
       }
 
       if (queryParams.buyerId) {
@@ -51,11 +49,11 @@ export class InvoicesController {
       }
 
       const invoices = await this.invoicingService.getInvoices(tenant_id, filters);
-      console.log(`✅ [INVOICES] Found ${invoices.length} invoices`);
+      this.logger.log(`[INVOICES] Found ${invoices.length} invoices`);
 
       return invoices;
     } catch (error) {
-      console.error('❌ [INVOICES] Error fetching invoices:', error);
+      this.logger.error(`[INVOICES] Error fetching invoices: ${error instanceof Error ? error.message : error}`, error instanceof Error ? error.stack : undefined);
       if (error instanceof HttpException) {
         throw error;
       }

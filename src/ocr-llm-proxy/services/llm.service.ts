@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
 import { InvoiceOcrResultDto, ConfidenceLevel, InvoiceType } from '../dto/invoice-ocr.dto';
 import { DataMaskingService } from './data-masking.service';
 
@@ -31,7 +32,8 @@ export interface LlmProcessingResponse {
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
   private readonly openaiApiKey: string;
-  private readonly useMockLlm: boolean;
+  private useMockLlm: boolean;
+  private readonly openaiClient: OpenAI | null;
 
   constructor(
     private readonly configService: ConfigService,
@@ -39,6 +41,17 @@ export class LlmService {
   ) {
     this.openaiApiKey = this.configService.get<string>('OPENAI_API_KEY') || '';
     this.useMockLlm = this.configService.get<boolean>('USE_MOCK_LLM', true);
+
+    // Initialize OpenAI client if API key is available
+    this.openaiClient = this.openaiApiKey
+      ? new OpenAI({ apiKey: this.openaiApiKey })
+      : null;
+
+    // Force mock mode if no API key is configured
+    if (!this.openaiApiKey) {
+      this.useMockLlm = true;
+      this.logger.warn('No OPENAI_API_KEY configured - forcing mock LLM mode');
+    }
   }
 
   /**
@@ -73,7 +86,7 @@ export class LlmService {
         confidence: normalizedData.confidenceScore,
         processingTime,
         metadata: {
-          model: this.useMockLlm ? 'mock-llm' : 'gpt-4',
+          model: this.useMockLlm ? 'mock-llm' : 'gpt-4o-mini',
           tokensUsed: this.estimateTokens(maskedOcrText),
         }
       };
@@ -116,11 +129,182 @@ export class LlmService {
    * Process with OpenAI API
    */
   private async processWithOpenAI(ocrText: string): Promise<InvoiceOcrResultDto> {
-    // This would integrate with actual OpenAI API
-    // For now, return mock result
-    this.logger.warn('OpenAI integration not implemented - using mock processing');
+    if (!this.openaiClient) {
+      this.logger.warn('OpenAI client not initialized - falling back to mock processing');
+      return this.processWithMockLlm(ocrText);
+    }
 
-    return this.processWithMockLlm(ocrText);
+    try {
+      this.logger.log('Calling OpenAI API (gpt-4o-mini) for invoice processing');
+
+      const systemPrompt = this.getStandardizedPrompt();
+
+      const completion = await this.openaiClient.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: ocrText },
+        ],
+        temperature: 0.1,
+        max_tokens: 2000,
+        response_format: { type: 'json_object' },
+      });
+
+      const responseContent = completion.choices?.[0]?.message?.content;
+
+      if (!responseContent) {
+        this.logger.warn('Empty response from OpenAI - falling back to mock processing');
+        return this.processWithMockLlm(ocrText);
+      }
+
+      this.logger.log(
+        `OpenAI response received - tokens used: ${completion.usage?.total_tokens ?? 'unknown'}`,
+      );
+
+      // Parse the JSON response
+      const parsed = JSON.parse(responseContent);
+
+      // Map parsed response to InvoiceOcrResultDto
+      const result = this.mapOpenAiResponseToDto(parsed, ocrText);
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `OpenAI API call failed: ${error.message ?? error} - falling back to mock processing`,
+      );
+      return this.processWithMockLlm(ocrText);
+    }
+  }
+
+  /**
+   * Map parsed OpenAI JSON response to InvoiceOcrResultDto
+   */
+  private mapOpenAiResponseToDto(
+    parsed: Record<string, any>,
+    ocrText: string,
+  ): InvoiceOcrResultDto {
+    // Parse dates safely
+    const parseDate = (value: string | null | undefined): Date | undefined => {
+      if (!value) return undefined;
+      const date = new Date(value);
+      return isNaN(date.getTime()) ? undefined : date;
+    };
+
+    // Map invoice type string to enum
+    const mapInvoiceType = (typeStr: string | null | undefined): InvoiceType | undefined => {
+      if (!typeStr) return undefined;
+      const upper = typeStr.toUpperCase();
+      if (upper in InvoiceType) {
+        return InvoiceType[upper as keyof typeof InvoiceType];
+      }
+      return undefined;
+    };
+
+    // Map items array
+    const mapItems = (items: any[] | null | undefined): any[] | undefined => {
+      if (!Array.isArray(items) || items.length === 0) return undefined;
+      return items
+        .filter((item) => item && item.name)
+        .map((item) => ({
+          name: String(item.name),
+          quantity: Number(item.quantity) || 1,
+          unitPrice: Number(item.unitPrice) || 0,
+          vatRate: item.vatRate != null ? Number(item.vatRate) : undefined,
+          totalPrice: Number(item.totalPrice) || 0,
+        }));
+    };
+
+    // Map party info (seller/buyer)
+    const mapParty = (party: any | null | undefined): any | undefined => {
+      if (!party || typeof party !== 'object') return undefined;
+      const mapped: any = {};
+      if (party.name) mapped.name = String(party.name);
+      if (party.address) mapped.address = String(party.address);
+      if (party.nip) mapped.nip = String(party.nip);
+      if (party.phone) mapped.phone = String(party.phone);
+      if (party.email) mapped.email = String(party.email);
+      return Object.keys(mapped).length > 0 ? mapped : undefined;
+    };
+
+    // Calculate confidence based on completeness of extracted data
+    const confidenceScore = this.calculateOpenAiConfidence(parsed);
+    const overallConfidence =
+      confidenceScore >= 0.8
+        ? ConfidenceLevel.HIGH
+        : confidenceScore >= 0.6
+          ? ConfidenceLevel.MEDIUM
+          : ConfidenceLevel.LOW;
+
+    return {
+      invoiceNumber: parsed.invoiceNumber || undefined,
+      issueDate: parseDate(parsed.issueDate),
+      saleDate: parseDate(parsed.saleDate),
+      dueDate: parseDate(parsed.dueDate),
+      type: mapInvoiceType(parsed.type),
+      seller: mapParty(parsed.seller),
+      buyer: mapParty(parsed.buyer),
+      items: mapItems(parsed.items),
+      netAmount: parsed.netAmount != null ? Number(parsed.netAmount) : undefined,
+      vatAmount: parsed.vatAmount != null ? Number(parsed.vatAmount) : undefined,
+      grossAmount: parsed.grossAmount != null ? Number(parsed.grossAmount) : undefined,
+      currency: parsed.currency || 'PLN',
+      paymentMethod: parsed.paymentMethod || undefined,
+      confidenceScore,
+      overallConfidence,
+      processingNotes: 'Processed by OpenAI gpt-4o-mini',
+      rawText: ocrText,
+    };
+  }
+
+  /**
+   * Calculate confidence score based on completeness of OpenAI-extracted data
+   */
+  private calculateOpenAiConfidence(parsed: Record<string, any>): number {
+    let score = 0;
+    let totalFields = 0;
+
+    // Core fields (weighted higher)
+    const coreFields = ['invoiceNumber', 'grossAmount', 'currency'];
+    for (const field of coreFields) {
+      totalFields += 2; // Weight of 2
+      if (parsed[field] != null) score += 2;
+    }
+
+    // Important fields
+    const importantFields = ['issueDate', 'netAmount', 'vatAmount', 'type', 'paymentMethod'];
+    for (const field of importantFields) {
+      totalFields += 1;
+      if (parsed[field] != null) score += 1;
+    }
+
+    // Nested objects
+    if (parsed.seller && typeof parsed.seller === 'object') {
+      totalFields += 2;
+      const sellerKeys = Object.keys(parsed.seller).filter((k) => parsed.seller[k] != null);
+      if (sellerKeys.length > 0) score += 1;
+      if (sellerKeys.length >= 2) score += 1;
+    } else {
+      totalFields += 2;
+    }
+
+    if (parsed.buyer && typeof parsed.buyer === 'object') {
+      totalFields += 2;
+      const buyerKeys = Object.keys(parsed.buyer).filter((k) => parsed.buyer[k] != null);
+      if (buyerKeys.length > 0) score += 1;
+      if (buyerKeys.length >= 2) score += 1;
+    } else {
+      totalFields += 2;
+    }
+
+    // Items
+    if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+      totalFields += 2;
+      score += 2;
+    } else {
+      totalFields += 2;
+    }
+
+    return totalFields > 0 ? Math.min(score / totalFields, 1.0) : 0.5;
   }
 
   /**

@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-// import { Parser } from 'json2csv'; // Will be added when dependency is installed
+import * as ExcelJS from 'exceljs';
+import PDFDocument from 'pdfkit';
 
 export interface ExportOptions {
   format: 'csv' | 'xlsx' | 'pdf';
@@ -73,15 +74,108 @@ export class ExportService {
     try {
       this.logger.log(`Exporting ${data.length} records to XLSX: ${filename}`);
 
-      // For now, we'll create a CSV file and rename it to .xlsx
-      // In a production environment, you'd use a library like 'exceljs' or 'xlsx'
-      const csvPath = await this.exportToCSV(data, filename.replace('.xlsx', '.csv'), options, complianceHeaders);
-      const xlsxPath = csvPath.replace('.csv', '.xlsx');
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Fiskario';
+      workbook.created = new Date();
 
-      // Rename file (simplified - in reality use proper XLSX library)
-      await fs.promises.rename(csvPath, xlsxPath);
+      // Add compliance info sheet if complianceHeaders provided
+      if (complianceHeaders) {
+        const infoSheet = workbook.addWorksheet('Informacje o raporcie');
 
-      return xlsxPath;
+        const complianceRows = [
+          ['Raport wygenerowany przez', 'Fiskario'],
+          ['Firma', complianceHeaders.companyName],
+          ['NIP', complianceHeaders.companyNIP],
+          ['Typ raportu', complianceHeaders.reportType],
+          ['Okres', complianceHeaders.period],
+          ['Data generowania', complianceHeaders.generatedAt.toLocaleString('pl-PL')],
+          ['Wygenerowane przez', complianceHeaders.generatedBy],
+          [],
+          ['Zgodnosc z przepisami', 'RODO/GDPR, Ustawa o rachunkowosci'],
+          ['Retencja danych', '5 lat zgodnie z przepisami podatkowymi'],
+        ];
+
+        complianceRows.forEach((row) => {
+          infoSheet.addRow(row);
+        });
+
+        // Style the label column
+        infoSheet.getColumn(1).width = 30;
+        infoSheet.getColumn(1).font = { bold: true };
+        infoSheet.getColumn(2).width = 50;
+      }
+
+      // Add data sheet
+      const dataSheet = workbook.addWorksheet('Dane');
+
+      if (data.length > 0) {
+        const columns = Object.keys(data[0]);
+
+        // Define columns with headers and approximate widths
+        dataSheet.columns = columns.map((col) => ({
+          header: this.formatColumnName(col),
+          key: col,
+          width: Math.max(
+            this.formatColumnName(col).length + 4,
+            ...data.slice(0, 50).map((row) => {
+              const val = row[col];
+              return val != null ? String(val).length + 2 : 10;
+            }),
+            10,
+          ),
+        }));
+
+        // Style header row
+        const headerRow = dataSheet.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF2E7D32' },
+        };
+        headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+        headerRow.height = 24;
+
+        // Add data rows
+        data.forEach((row) => {
+          const dataRow = dataSheet.addRow(row);
+          // Format date values for Polish locale
+          columns.forEach((col, idx) => {
+            const value = row[col];
+            if (value instanceof Date) {
+              const cell = dataRow.getCell(idx + 1);
+              cell.value = value;
+              cell.numFmt = 'DD.MM.YYYY';
+            }
+          });
+        });
+
+        // Add alternating row colors for readability
+        dataSheet.eachRow((row, rowNumber) => {
+          if (rowNumber > 1 && rowNumber % 2 === 0) {
+            row.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFF5F5F5' },
+            };
+          }
+        });
+
+        // Add auto-filter to header row
+        dataSheet.autoFilter = {
+          from: { row: 1, column: 1 },
+          to: { row: 1, column: columns.length },
+        };
+      }
+
+      // Ensure filename has .xlsx extension
+      const xlsxFilename = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+      const filePath = path.join(this.uploadDir, xlsxFilename);
+
+      await workbook.xlsx.writeFile(filePath);
+
+      this.logger.log(`XLSX export completed: ${filePath}`);
+      return filePath;
     } catch (error) {
       this.logger.error(`Error exporting to XLSX: ${error.message}`, error.stack);
       throw error;
@@ -98,24 +192,255 @@ export class ExportService {
     try {
       this.logger.log(`Exporting ${data.length} records to PDF: ${filename}`);
 
-      // For now, we'll create a simple HTML file and convert concepts
-      // In a production environment, you'd use a library like 'puppeteer' or 'pdfkit'
-      const htmlContent = this.generateHTMLReport(data, complianceHeaders, title);
+      // Ensure filename has .pdf extension
+      const pdfFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+      const filePath = path.join(this.uploadDir, pdfFilename);
 
-      const htmlFilename = filename.endsWith('.html') ? filename : `${filename}.html`;
-      const filePath = path.join(this.uploadDir, htmlFilename);
+      return new Promise<string>((resolve, reject) => {
+        const doc = new PDFDocument({
+          size: 'A4',
+          margins: { top: 50, bottom: 50, left: 40, right: 40 },
+          info: {
+            Title: title || 'Raport Fiskario',
+            Author: 'Fiskario',
+            Creator: 'Fiskario Export Service',
+          },
+        });
 
-      await fs.promises.writeFile(filePath, htmlContent, 'utf8');
+        const writeStream = fs.createWriteStream(filePath);
+        doc.pipe(writeStream);
 
-      // In a real implementation, you'd convert HTML to PDF here
-      const pdfPath = filePath.replace('.html', '.pdf');
-      // await this.convertHTMLToPDF(filePath, pdfPath);
+        const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
-      return pdfPath;
+        // Title header
+        doc
+          .fontSize(20)
+          .font('Helvetica-Bold')
+          .text(title || 'Raport Fiskario', { align: 'center' });
+        doc.moveDown(0.5);
+
+        // Horizontal rule under title
+        doc
+          .moveTo(doc.page.margins.left, doc.y)
+          .lineTo(doc.page.width - doc.page.margins.right, doc.y)
+          .strokeColor('#2E7D32')
+          .lineWidth(2)
+          .stroke();
+        doc.moveDown(0.8);
+
+        // Compliance info section
+        if (complianceHeaders) {
+          // Section background
+          const infoStartY = doc.y;
+
+          doc
+            .fontSize(12)
+            .font('Helvetica-Bold')
+            .text('Informacje o raporcie');
+          doc.moveDown(0.3);
+
+          const complianceFields = [
+            ['Firma', complianceHeaders.companyName],
+            ['NIP', complianceHeaders.companyNIP],
+            ['Typ raportu', complianceHeaders.reportType],
+            ['Okres', complianceHeaders.period],
+            ['Data generowania', complianceHeaders.generatedAt.toLocaleString('pl-PL')],
+            ['Wygenerowane przez', complianceHeaders.generatedBy],
+          ];
+
+          doc.fontSize(9).font('Helvetica');
+          complianceFields.forEach(([label, value]) => {
+            doc
+              .font('Helvetica-Bold')
+              .text(`${label}: `, { continued: true })
+              .font('Helvetica')
+              .text(String(value));
+          });
+
+          doc.moveDown(0.5);
+
+          // Draw background rectangle behind compliance info
+          const infoEndY = doc.y;
+          doc
+            .save()
+            .rect(
+              doc.page.margins.left - 5,
+              infoStartY - 5,
+              pageWidth + 10,
+              infoEndY - infoStartY + 5,
+            )
+            .fillColor('#F5F5F5')
+            .fill()
+            .restore();
+
+          // Re-draw the compliance text on top of the background
+          doc.y = infoStartY;
+          doc
+            .fontSize(12)
+            .font('Helvetica-Bold')
+            .fillColor('#000000')
+            .text('Informacje o raporcie');
+          doc.moveDown(0.3);
+
+          doc.fontSize(9);
+          complianceFields.forEach(([label, value]) => {
+            doc
+              .font('Helvetica-Bold')
+              .fillColor('#333333')
+              .text(`${label}: `, { continued: true })
+              .font('Helvetica')
+              .fillColor('#000000')
+              .text(String(value));
+          });
+
+          doc.moveDown(1);
+        }
+
+        // Data table
+        if (data.length > 0) {
+          const columns = Object.keys(data[0]);
+          const colCount = columns.length;
+          const colWidth = pageWidth / colCount;
+          const rowHeight = 20;
+          const headerHeight = 24;
+          const fontSize = Math.min(8, Math.max(5, 70 / colCount));
+
+          const drawTableHeader = (startY: number) => {
+            // Header background
+            doc
+              .save()
+              .rect(doc.page.margins.left, startY, pageWidth, headerHeight)
+              .fillColor('#2E7D32')
+              .fill()
+              .restore();
+
+            // Header text
+            doc.fontSize(fontSize).font('Helvetica-Bold').fillColor('#FFFFFF');
+            columns.forEach((col, i) => {
+              doc.text(
+                this.formatColumnName(col),
+                doc.page.margins.left + i * colWidth + 3,
+                startY + 6,
+                { width: colWidth - 6, height: headerHeight, ellipsis: true },
+              );
+            });
+
+            return startY + headerHeight;
+          };
+
+          let currentY = drawTableHeader(doc.y);
+
+          // Data rows
+          doc.fontSize(fontSize).font('Helvetica').fillColor('#000000');
+
+          data.forEach((row, rowIndex) => {
+            // Check if we need a new page
+            if (currentY + rowHeight > doc.page.height - doc.page.margins.bottom - 40) {
+              // Add footer before new page
+              this.drawPdfFooter(doc, pageWidth);
+              doc.addPage();
+              currentY = drawTableHeader(doc.page.margins.top);
+              doc.fontSize(fontSize).font('Helvetica').fillColor('#000000');
+            }
+
+            // Alternating row background
+            if (rowIndex % 2 === 0) {
+              doc
+                .save()
+                .rect(doc.page.margins.left, currentY, pageWidth, rowHeight)
+                .fillColor('#FAFAFA')
+                .fill()
+                .restore();
+            }
+
+            // Row border
+            doc
+              .save()
+              .moveTo(doc.page.margins.left, currentY + rowHeight)
+              .lineTo(doc.page.margins.left + pageWidth, currentY + rowHeight)
+              .strokeColor('#E0E0E0')
+              .lineWidth(0.5)
+              .stroke()
+              .restore();
+
+            // Cell values
+            doc.fillColor('#333333');
+            columns.forEach((col, i) => {
+              let cellValue = row[col];
+              if (cellValue instanceof Date) {
+                cellValue = cellValue.toLocaleDateString('pl-PL');
+              } else if (cellValue == null) {
+                cellValue = '';
+              } else {
+                cellValue = String(cellValue);
+              }
+
+              doc.text(
+                cellValue,
+                doc.page.margins.left + i * colWidth + 3,
+                currentY + 5,
+                { width: colWidth - 6, height: rowHeight - 4, ellipsis: true },
+              );
+            });
+
+            currentY += rowHeight;
+          });
+
+          // Summary line
+          doc.y = currentY + 10;
+          doc
+            .fontSize(9)
+            .font('Helvetica')
+            .fillColor('#666666')
+            .text(`Liczba rekordow: ${data.length}`, { align: 'right' });
+          doc.moveDown(0.5);
+        }
+
+        // Footer with RODO/GDPR compliance note
+        this.drawPdfFooter(doc, pageWidth);
+
+        doc.end();
+
+        writeStream.on('finish', () => {
+          this.logger.log(`PDF export completed: ${filePath}`);
+          resolve(filePath);
+        });
+
+        writeStream.on('error', (err) => {
+          this.logger.error(`Error writing PDF file: ${err.message}`);
+          reject(err);
+        });
+      });
     } catch (error) {
       this.logger.error(`Error exporting to PDF: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  private drawPdfFooter(doc: PDFKit.PDFDocument, pageWidth: number): void {
+    const footerY = doc.page.height - doc.page.margins.bottom - 30;
+
+    doc
+      .save()
+      .moveTo(doc.page.margins.left, footerY)
+      .lineTo(doc.page.margins.left + pageWidth, footerY)
+      .strokeColor('#CCCCCC')
+      .lineWidth(0.5)
+      .stroke()
+      .restore();
+
+    doc
+      .fontSize(7)
+      .font('Helvetica')
+      .fillColor('#999999')
+      .text(
+        'Ten raport zostal wygenerowany automatycznie przez system Fiskario. ' +
+          'Dane sa zgodne z przepisami RODO/GDPR oraz polskimi przepisami podatkowymi. ' +
+          'Retencja danych: 5 lat zgodnie z art. 74 ustawy o rachunkowosci.',
+        doc.page.margins.left,
+        footerY + 5,
+        { width: pageWidth, align: 'center' },
+      );
   }
 
   private generateComplianceHeaderCSV(headers: ComplianceHeaders): string {

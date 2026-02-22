@@ -1,21 +1,16 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCompanyDto, UpdateCompanyDto } from './dto/create-company.dto';
 
 @Injectable()
 export class CompaniesService {
+  private readonly logger = new Logger(CompaniesService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async createCompany(tenantId: string, dto: CreateCompanyDto) {
-    console.log(`🔍 [COMPANY CREATION] Attempting to create company for tenant: ${tenantId}`);
-    console.log(`📋 [COMPANY CREATION] Company data:`, {
-      name: dto.name,
-      nip: dto.nip,
-      regon: dto.regon,
-      vatStatus: dto.vatStatus,
-      taxOffice: dto.taxOffice,
-      isActive: dto.isActive
-    });
+    this.logger.log(`[COMPANY CREATION] Attempting to create company for tenant: ${tenantId}`);
+    this.logger.log(`[COMPANY CREATION] Company data: name=${dto.name}, nip=${dto.nip}, regon=${dto.regon}, vatStatus=${dto.vatStatus}, taxOffice=${dto.taxOffice}, isActive=${dto.isActive}`);
 
     try {
       // Check if NIP already exists (if provided)
@@ -24,7 +19,7 @@ export class CompaniesService {
           where: { nip: dto.nip }
         });
         if (existingCompany) {
-          console.error(`❌ [COMPANY CREATION] NIP already exists: ${dto.nip}`);
+          this.logger.error(`[COMPANY CREATION] NIP already exists: ${dto.nip}`);
           throw new ConflictException('Company with this NIP already exists');
         }
       }
@@ -34,7 +29,7 @@ export class CompaniesService {
         ? `${dto.address.street}, ${dto.address.postalCode} ${dto.address.city}, ${dto.address.country}`
         : undefined;
 
-      console.log(`✅ [COMPANY CREATION] Creating company in database...`);
+      this.logger.log('[COMPANY CREATION] Creating company in database...');
       const company = await this.prisma.company.create({
         data: {
           tenant_id: tenantId,
@@ -49,18 +44,12 @@ export class CompaniesService {
         },
       });
 
-      console.log(`🎉 [COMPANY CREATION] Company created successfully: ${company.id}`);
+      this.logger.log(`[COMPANY CREATION] Company created successfully: ${company.id}`);
       return company;
 
     } catch (error) {
-      console.error(`💥 [COMPANY CREATION] Error creating company:`, error.message);
-      console.error(`🔍 [COMPANY CREATION] Error details:`, {
-        tenantId,
-        companyName: dto.name,
-        nip: dto.nip,
-        errorCode: error.code,
-        errorMeta: error.meta
-      });
+      this.logger.error(`[COMPANY CREATION] Error creating company: ${error.message}`, error.stack);
+      this.logger.error(`[COMPANY CREATION] Error details: tenantId=${tenantId}, companyName=${dto.name}, nip=${dto.nip}, errorCode=${error.code}`);
       throw error;
     }
   }

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createWorker } from 'tesseract.js';
 import { InvoiceOcrResultDto, ConfidenceLevel } from '../dto/invoice-ocr.dto';
 import { DataMaskingService } from './data-masking.service';
 
@@ -37,18 +38,34 @@ export class OcrService {
    * Perform OCR using Tesseract.js
    */
   private async performOcr(imageData: string): Promise<{ text: string; confidence: number }> {
+    let worker;
     try {
-      // For now, return mock OCR result since Tesseract.js requires additional setup
-      // In production, this would use actual Tesseract.js worker
-      this.logger.warn('Using mock OCR result - Tesseract.js integration needed');
+      this.logger.log('Initializing Tesseract.js worker with Polish language support');
+
+      // Convert data URI to Buffer
+      const base64Data = imageData.split(',')[1];
+      const imageBuffer = Buffer.from(base64Data, 'base64');
+
+      // Create Tesseract worker with Polish language
+      worker = await createWorker('pol');
+
+      // Perform OCR recognition
+      const { data } = await worker.recognize(imageBuffer);
+
+      this.logger.log(`OCR completed - extracted ${data.text.length} characters with ${data.confidence}% confidence`);
 
       return {
-        text: 'Mock OCR text extraction - Tesseract.js integration required',
-        confidence: 0.8
+        text: data.text,
+        confidence: data.confidence / 100, // Normalize from 0-100 to 0-1
       };
     } catch (error) {
       this.logger.error('Tesseract OCR failed', error);
       throw error;
+    } finally {
+      if (worker) {
+        await worker.terminate();
+        this.logger.debug('Tesseract worker terminated');
+      }
     }
   }
 

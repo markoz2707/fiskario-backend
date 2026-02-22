@@ -153,37 +153,166 @@ export class ZusDeadlineService {
   }
 
   /**
-   * Mark deadline as completed
+   * Mark deadline as completed.
+   * Persists a DeadlineCompletion record and creates a confirmation notification
+   * for all users in the tenant.
    */
   async markDeadlineCompleted(
     tenantId: string,
     companyId: string,
     deadlineType: string,
     period: string,
+    userId?: string,
   ): Promise<void> {
-    // This would typically update a deadline tracking table
-    // For now, we'll just log the action
-    this.logger.log(`Marked deadline as completed: ${deadlineType} for period ${period} in company ${companyId}`);
+    const deadlineId = `zus-${deadlineType}-${companyId}-${period}`;
 
-    // In a real implementation, you might want to store this in a separate table:
-    // await this.prisma.zUSDeadline.updateMany({
-    //   where: { tenant_id: tenantId, company_id: companyId, type: deadlineType, period },
-    //   data: { status: 'completed', completedAt: new Date() }
-    // });
+    // Persist completion record
+    await this.prisma.deadlineCompletion.create({
+      data: {
+        tenant_id: tenantId,
+        deadlineId,
+        user_id: userId ?? 'system',
+        notes: `ZUS deadline ${deadlineType} for period ${period} completed`,
+      },
+    });
+
+    // Create a confirmation notification for the acting user (or all tenant users)
+    const targetUsers = userId
+      ? [{ id: userId }]
+      : await this.prisma.user.findMany({
+          where: { tenant_id: tenantId },
+          select: { id: true },
+        });
+
+    for (const user of targetUsers) {
+      await this.prisma.notification.create({
+        data: {
+          tenant_id: tenantId,
+          user_id: user.id,
+          type: 'zus_deadline_completed',
+          title: `ZUS Deadline Completed`,
+          body: `ZUS ${deadlineType} for period ${period} has been marked as completed.`,
+          data: { companyId, deadlineType, period, deadlineId },
+          priority: 'low',
+          status: 'pending',
+        },
+      });
+    }
+
+    this.logger.log(
+      `Marked deadline as completed: ${deadlineType} for period ${period} in company ${companyId} (tenant: ${tenantId})`,
+    );
   }
 
   /**
-   * Send deadline reminders
+   * Send deadline reminders for all tenants.
+   * Queries all companies, finds deadlines due in the next 7 days,
+   * and creates Notification records for each tenant's users.
    */
   async sendDeadlineReminders(): Promise<void> {
-    // This method would be called by a cron job to send reminders
-    // Implementation would depend on the notification system
-
     this.logger.log('Checking for upcoming ZUS deadlines to send reminders...');
 
-    // Get all upcoming deadlines (next 7 days)
-    // Send email/push notifications to users
-    // This is a placeholder for the actual implementation
+    // Get all distinct tenants by querying companies
+    const companies = await this.prisma.company.findMany({
+      where: { isActive: true },
+      select: { id: true, tenant_id: true, name: true },
+    });
+
+    // Group companies by tenant
+    const tenantCompanies = new Map<string, { id: string; name: string }[]>();
+    for (const company of companies) {
+      const existing = tenantCompanies.get(company.tenant_id) ?? [];
+      existing.push({ id: company.id, name: company.name });
+      tenantCompanies.set(company.tenant_id, existing);
+    }
+
+    const now = new Date();
+    const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    let totalReminders = 0;
+
+    for (const [tenantId, tenantCompanyList] of tenantCompanies) {
+      // Get all users for this tenant
+      const users = await this.prisma.user.findMany({
+        where: { tenant_id: tenantId },
+        select: { id: true },
+      });
+
+      if (users.length === 0) {
+        continue;
+      }
+
+      for (const company of tenantCompanyList) {
+        const deadlines = await this.getCompanyDeadlines(tenantId, company.id);
+
+        // Filter to upcoming deadlines within next 7 days (not completed)
+        const upcomingDeadlines = deadlines.filter(
+          (d) =>
+            d.status !== 'completed' &&
+            d.dueDate >= now &&
+            d.dueDate <= next7Days,
+        );
+
+        for (const deadline of upcomingDeadlines) {
+          const daysLeft = this.calculateDaysUntilDeadline(deadline.dueDate);
+          const deadlineId = `zus-${deadline.type}-${company.id}-${deadline.period ?? 'none'}`;
+
+          // Check if a reminder was already sent today for this deadline
+          const existingReminder = await this.prisma.deadlineReminder.findFirst({
+            where: {
+              tenant_id: tenantId,
+              deadlineId,
+              scheduledFor: {
+                gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+                lt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
+              },
+            },
+          });
+
+          if (existingReminder) {
+            continue; // Already sent today
+          }
+
+          // Create notification and reminder for each user
+          for (const user of users) {
+            await this.prisma.notification.create({
+              data: {
+                tenant_id: tenantId,
+                user_id: user.id,
+                type: 'zus_deadline_reminder',
+                title: `ZUS Deadline Reminder: ${deadline.name}`,
+                body: `${deadline.description} - due in ${daysLeft} day(s) (${deadline.dueDate.toISOString().split('T')[0]}). Company: ${company.name}`,
+                data: {
+                  companyId: company.id,
+                  companyName: company.name,
+                  deadlineType: deadline.type,
+                  period: deadline.period,
+                  dueDate: deadline.dueDate.toISOString(),
+                  daysLeft,
+                },
+                priority: daysLeft <= 2 ? 'high' : 'normal',
+                status: 'pending',
+              },
+            });
+
+            await this.prisma.deadlineReminder.create({
+              data: {
+                tenant_id: tenantId,
+                deadlineId,
+                user_id: user.id,
+                reminderType: daysLeft <= 2 ? 'urgent' : 'standard',
+                scheduledFor: now,
+                sent: true,
+                sentAt: now,
+              },
+            });
+
+            totalReminders++;
+          }
+        }
+      }
+    }
+
+    this.logger.log(`ZUS deadline reminders sent: ${totalReminders} notification(s) created.`);
   }
 
   /**
@@ -252,21 +381,55 @@ export class ZusDeadlineService {
   }
 
   /**
-   * Get Polish holidays for a given year
+   * Calculate Easter Sunday using the Anonymous Gregorian algorithm.
+   * Valid for any year in the Gregorian calendar.
+   */
+  private calculateEasterSunday(year: number): Date {
+    const a = year % 19;
+    const b = Math.floor(year / 100);
+    const c = year % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indexed for JS Date
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+
+    return new Date(year, month, day);
+  }
+
+  /**
+   * Get Polish holidays for a given year.
+   * Includes all official Polish public holidays (ustawowe dni wolne od pracy).
    */
   private getPolishHolidays(year: number): Date[] {
-    // This is a simplified list - in reality, you'd want a more comprehensive holiday calculation
+    const easterSunday = this.calculateEasterSunday(year);
+
+    // Easter Monday = Easter Sunday + 1 day
+    const easterMonday = new Date(easterSunday);
+    easterMonday.setDate(easterMonday.getDate() + 1);
+
+    // Corpus Christi (Boże Ciało) = Easter Sunday + 60 days
+    const corpusChristi = new Date(easterSunday);
+    corpusChristi.setDate(corpusChristi.getDate() + 60);
+
     return [
-      new Date(year, 0, 1),   // New Year
-      new Date(year, 0, 6),   // Epiphany
-      new Date(year, 3, 1),   // Easter Monday (simplified)
-      new Date(year, 4, 1),   // Labor Day
-      new Date(year, 4, 3),   // Constitution Day
-      new Date(year, 7, 15),  // Assumption Day
-      new Date(year, 10, 1),  // All Saints' Day
-      new Date(year, 10, 11), // Independence Day
-      new Date(year, 11, 25), // Christmas
-      new Date(year, 11, 26), // Boxing Day
+      new Date(year, 0, 1),   // New Year (Nowy Rok)
+      new Date(year, 0, 6),   // Epiphany (Trzech Króli)
+      easterMonday,            // Easter Monday (Poniedziałek Wielkanocny)
+      new Date(year, 4, 1),   // Labor Day (Święto Pracy)
+      new Date(year, 4, 3),   // Constitution Day (Święto Konstytucji 3 Maja)
+      corpusChristi,           // Corpus Christi (Boże Ciało)
+      new Date(year, 7, 15),  // Assumption Day (Wniebowzięcie NMP)
+      new Date(year, 10, 1),  // All Saints' Day (Wszystkich Świętych)
+      new Date(year, 10, 11), // Independence Day (Święto Niepodległości)
+      new Date(year, 11, 25), // Christmas (Boże Narodzenie)
+      new Date(year, 11, 26), // Boxing Day (Drugi dzień Bożego Narodzenia)
     ];
   }
 }

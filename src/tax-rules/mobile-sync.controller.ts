@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Request, Get, Param, HttpException, HttpStatus, Query, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Logger, Post, Body, UseGuards, Request, Get, Param, HttpException, HttpStatus, Query, UsePipes, ValidationPipe } from '@nestjs/common';
 import { TaxRulesService } from './tax-rules.service';
 import { MobileTaxSyncDto } from './dto/mobile-tax-calculation.dto';
 import { MobileErrorResponseDto, MobileSyncErrorDto } from './dto/mobile-error.dto';
@@ -7,6 +7,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 @Controller('mobile-sync')
 @UseGuards(JwtAuthGuard)
 export class MobileSyncController {
+  private readonly logger = new Logger(MobileSyncController.name);
+
   constructor(private readonly taxRulesService: TaxRulesService) {}
 
   @Post('full-sync')
@@ -43,18 +45,12 @@ export class MobileSyncController {
   }))
   async performIncrementalSync(@Body() syncDto: MobileTaxSyncDto, @Request() req) {
     try {
-      console.log('🔄 [MOBILE SYNC] Incremental sync request received:', {
-        companyId: syncDto.companyId,
-        deviceId: syncDto.deviceId,
-        lastSyncTimestamp: syncDto.lastSyncTimestamp,
-        hasPendingCalculations: !!(syncDto.pendingCalculations && syncDto.pendingCalculations.length > 0),
-        pendingCalculationsCount: syncDto.pendingCalculations?.length || 0,
-      });
+      this.logger.log(`[MOBILE SYNC] Incremental sync request received: companyId=${syncDto.companyId}, deviceId=${syncDto.deviceId}, lastSyncTimestamp=${syncDto.lastSyncTimestamp}, pendingCalculationsCount=${syncDto.pendingCalculations?.length || 0}`);
 
       const tenant_id = req.user?.tenant_id || 'default-tenant';
       return await this.taxRulesService.performIncrementalSync(tenant_id, syncDto);
     } catch (error) {
-      console.error('❌ [MOBILE SYNC] Incremental sync error:', error);
+      this.logger.error(`[MOBILE SYNC] Incremental sync error: ${error instanceof Error ? error.message : error}`, error instanceof Error ? error.stack : undefined);
       if (error instanceof HttpException) {
         throw error;
       }

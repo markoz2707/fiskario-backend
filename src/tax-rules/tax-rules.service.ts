@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTaxFormDto } from './dto/create-tax-form.dto';
 import { CreateTaxRuleDto } from './dto/create-tax-rule.dto';
@@ -7,6 +7,8 @@ import { MobileTaxCalculationDto, MobileTaxCalculationResponseDto, MobileTaxSync
 
 @Injectable()
 export class TaxRulesService {
+  private readonly logger = new Logger(TaxRulesService.name);
+
   constructor(private prisma: PrismaService) {}
 
   // Tax Forms
@@ -228,7 +230,7 @@ export class TaxRulesService {
           await this.calculateTaxForMobile(tenant_id, calculation);
           syncedCalculations++;
         } catch (error) {
-          console.error('Failed to sync calculation:', error);
+          this.logger.error(`Failed to sync calculation: ${error instanceof Error ? error.message : error}`, error instanceof Error ? error.stack : undefined);
         }
       }
     }
@@ -440,7 +442,7 @@ export class TaxRulesService {
           await this.calculateTaxForMobile(tenant_id, calculation);
           syncedCalculations++;
         } catch (error) {
-          console.error('Failed to sync calculation:', error);
+          this.logger.error(`Failed to sync calculation: ${error instanceof Error ? error.message : error}`, error instanceof Error ? error.stack : undefined);
         }
       }
     }
@@ -505,7 +507,7 @@ export class TaxRulesService {
           await this.calculateTaxForMobile(tenant_id, calculation);
           syncedCalculations++;
         } catch (error) {
-          console.error('Failed to sync calculation:', error);
+          this.logger.error(`Failed to sync calculation: ${error instanceof Error ? error.message : error}`, error instanceof Error ? error.stack : undefined);
         }
       }
     }

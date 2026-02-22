@@ -11,6 +11,7 @@ import {
   HttpException
 } from '@nestjs/common';
 import { JPKV7Service } from './services/jpk-v7.service';
+import { PrismaService } from '../prisma/prisma.service';
 import {
   GenerateJPKV7Dto,
   ValidateJPKV7Dto,
@@ -21,7 +22,10 @@ import {
 
 @Controller('jpk-v7')
 export class JPKV7Controller {
-  constructor(private readonly jpkV7Service: JPKV7Service) {}
+  constructor(
+    private readonly jpkV7Service: JPKV7Service,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Generate JPK_V7M (monthly) XML
@@ -327,7 +331,7 @@ export class JPKV7Controller {
   ) {
     try {
       // Get company info
-      const companyInfo = await this.getCompanyInfo(companyId);
+      const companyInfo = await this.getCompanyInfo(req.user.tenant_id, companyId);
 
       const isRequired = this.jpkV7Service.isJPKV7Required(period, companyInfo);
 
@@ -384,12 +388,16 @@ export class JPKV7Controller {
   /**
    * Helper method to get company info (would need to be implemented with proper service)
    */
-  private async getCompanyInfo(companyId: string): Promise<any> {
-    // This would typically use a company service
-    // For now, return a mock structure
+  private async getCompanyInfo(tenantId: string, companyId: string) {
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, tenant_id: tenantId },
+    });
     return {
       id: companyId,
-      vatPayer: true
+      nip: company?.nip || '',
+      name: company?.name || 'Brak danych firmy',
+      address: company?.address || '',
+      vatPayer: company?.vatPayer ?? true,
     };
   }
 }

@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NestInterceptor,
   ExecutionContext,
   CallHandler,
@@ -38,6 +39,8 @@ interface LogContext {
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(LoggingInterceptor.name);
+
   constructor(private configService: ConfigService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
@@ -67,25 +70,25 @@ export class LoggingInterceptor implements NestInterceptor {
     };
 
     // Log request start
-      console.log(`🚀 [${requestId}] ${request.method} ${request.url} - Started`);
-  
+      this.logger.log(`[${requestId}] ${request.method} ${request.url} - Started`);
+
       // Enhanced logging for new features
       if (request.url.includes('/management-dashboard') ||
           request.url.includes('/workflow-automation') ||
           request.url.includes('/performance-optimization') ||
           request.url.includes('/mobile-sync') ||
           request.url.includes('/feature-flags')) {
-        console.log(`✨ [${requestId}] New Feature API Call: ${request.method} ${request.url}`);
+        this.logger.log(`[${requestId}] New Feature API Call: ${request.method} ${request.url}`);
       }
-  
+
       // Log request details if body exists
       if (request.body && Object.keys(request.body).length > 0) {
-        console.log(`📝 [${requestId}] Request Body:`, JSON.stringify(this.sanitizeData(request.body), null, 2));
+        this.logger.log(`[${requestId}] Request Body: ${JSON.stringify(this.sanitizeData(request.body), null, 2)}`);
       }
-  
+
       // Log query parameters if they exist
       if (request.query && Object.keys(request.query).length > 0) {
-        console.log(`🔍 [${requestId}] Query Params:`, JSON.stringify(request.query, null, 2));
+        this.logger.log(`[${requestId}] Query Params: ${JSON.stringify(request.query, null, 2)}`);
       }
 
     return next.handle().pipe(
@@ -149,25 +152,17 @@ export class LoggingInterceptor implements NestInterceptor {
       }
 
       // Log detailed user context for debugging
-      console.log(`👤 [${this.generateRequestId()}] User Context Debug:`, {
-        hasUser: true,
-        userId: context.userId,
-        tenantId: context.tenantId,
-        rolesCount: context.roles?.length || 0,
-        userObjectKeys: Object.keys(user),
-        authTime: user.iat ? new Date(user.iat * 1000).toISOString() : 'unknown',
-        expTime: user.exp ? new Date(user.exp * 1000).toISOString() : 'unknown'
-      });
+      this.logger.log(`User Context Debug: userId=${context.userId}, tenantId=${context.tenantId}, rolesCount=${context.roles?.length || 0}, authTime=${user.iat ? new Date(user.iat * 1000).toISOString() : 'unknown'}, expTime=${user.exp ? new Date(user.exp * 1000).toISOString() : 'unknown'}`);
     } else {
-      console.warn(`⚠️ [${this.generateRequestId()}] No user object found in request`);
+      this.logger.warn('No user object found in request');
     }
 
     // Log authentication status
     const authHeader = request.headers?.authorization;
     if (authHeader) {
-      console.log(`🔐 [${this.generateRequestId()}] Auth Status: Bearer token present (${authHeader.length} chars)`);
+      this.logger.log(`Auth Status: Bearer token present (${authHeader.length} chars)`);
     } else {
-      console.log(`🚫 [${this.generateRequestId()}] Auth Status: No authorization header`);
+      this.logger.log('Auth Status: No authorization header');
     }
 
     return context;
@@ -225,28 +220,28 @@ export class LoggingInterceptor implements NestInterceptor {
     const { requestId, method, url, executionTime, statusCode, userContext } = logContext;
     const statusEmoji = this.getStatusEmoji(statusCode || 200);
 
-    console.log(`${statusEmoji} [${requestId}] ${method} ${url} - ${statusCode} - ${executionTime}ms`);
+    this.logger.log(`${statusEmoji} [${requestId}] ${method} ${url} - ${statusCode} - ${executionTime}ms`);
 
     // Log user context if available
     if (userContext && (userContext.userId || userContext.tenantId)) {
-      console.log(`👤 [${requestId}] User Context:`, JSON.stringify(userContext, null, 2));
+      this.logger.log(`[${requestId}] User Context: ${JSON.stringify(userContext)}`);
     }
 
     // Log response data size for large responses
     if (responseData) {
       const responseSize = this.getDataSize(responseData);
       if (responseSize > 1024) {
-        console.log(`📊 [${requestId}] Response Size: ${(responseSize / 1024).toFixed(2)}KB`);
+        this.logger.log(`[${requestId}] Response Size: ${(responseSize / 1024).toFixed(2)}KB`);
       }
     }
 
     // Performance monitoring
     if (executionTime > 1000) {
-      console.warn(`⚠️  [${requestId}] Slow Request: ${executionTime}ms`);
+      this.logger.warn(`[${requestId}] Slow Request: ${executionTime}ms`);
     }
 
     if (executionTime > 5000) {
-      console.error(`🚨 [${requestId}] Very Slow Request: ${executionTime}ms`);
+      this.logger.error(`[${requestId}] Very Slow Request: ${executionTime}ms`);
     }
   }
 
@@ -254,55 +249,46 @@ export class LoggingInterceptor implements NestInterceptor {
     const { requestId, method, url, executionTime, error } = logContext;
     const statusEmoji = this.getStatusEmoji(error?.status || 500);
 
-    console.error(`${statusEmoji} [${requestId}] ${method} ${url} - ${error?.status} - ${executionTime}ms`);
+    this.logger.error(`[${requestId}] ${method} ${url} - ${error?.status} - ${executionTime}ms`);
 
     if (error) {
-      console.error(`❌ [${requestId}] Error Message: ${error.message}`);
-      console.error(`❌ [${requestId}] Error Type: ${error.constructor?.name || 'Unknown'}`);
+      this.logger.error(`[${requestId}] Error Message: ${error.message}`);
+      this.logger.error(`[${requestId}] Error Type: ${error.constructor?.name || 'Unknown'}`);
 
       // Enhanced stack trace logging
       if (error.stack) {
-        console.error(`🔍 [${requestId}] Full Stack Trace:`);
-        console.error(error.stack);
+        this.logger.error(`[${requestId}] Full Stack Trace:`, error.stack);
 
         // Log stack trace analysis for common auth issues
         if (error.message?.includes('jwt') || error.message?.includes('token') || error.message?.includes('auth')) {
-          console.error(`🔐 [${requestId}] Authentication Error Analysis:`);
-          console.error(`🔐 [${requestId}] - Check JWT token format and expiration`);
-          console.error(`🔐 [${requestId}] - Verify token signing secret`);
-          console.error(`🔐 [${requestId}] - Confirm user exists in database`);
+          this.logger.error(`[${requestId}] Authentication Error Analysis: Check JWT token format and expiration, Verify token signing secret, Confirm user exists in database`);
         }
       }
 
       // Log error context
       if (error.response?.data) {
-        console.error(`📄 [${requestId}] Error Response Data:`, JSON.stringify(error.response.data, null, 2));
+        this.logger.error(`[${requestId}] Error Response Data: ${JSON.stringify(error.response.data, null, 2)}`);
       }
 
       if (error.response?.status) {
-        console.error(`📊 [${requestId}] Error Response Status: ${error.response.status}`);
+        this.logger.error(`[${requestId}] Error Response Status: ${error.response.status}`);
       }
 
       if (error.code) {
-        console.error(`🔢 [${requestId}] Error Code: ${error.code}`);
+        this.logger.error(`[${requestId}] Error Code: ${error.code}`);
       }
     }
 
     // Enhanced user context logging for errors
     if (logContext.userContext && (logContext.userContext.userId || logContext.userContext.tenantId)) {
-      console.error(`👤 [${requestId}] Error User Context:`, JSON.stringify(logContext.userContext, null, 2));
+      this.logger.error(`[${requestId}] Error User Context: ${JSON.stringify(logContext.userContext)}`);
 
       // Additional auth debugging info
       if (error?.status === 401 || error?.status === 403) {
-        console.error(`🚫 [${requestId}] Authentication/Authorization Error:`);
-        console.error(`🚫 [${requestId}] - User ID: ${logContext.userContext.userId}`);
-        console.error(`🚫 [${requestId}] - Tenant ID: ${logContext.userContext.tenantId}`);
-        console.error(`🚫 [${requestId}] - User Roles: ${JSON.stringify(logContext.userContext.roles)}`);
-        console.error(`🚫 [${requestId}] - Check if user has required permissions`);
-        console.error(`🚫 [${requestId}] - Verify JWT token is not expired`);
+        this.logger.error(`[${requestId}] Authentication/Authorization Error: User ID=${logContext.userContext.userId}, Tenant ID=${logContext.userContext.tenantId}, User Roles=${JSON.stringify(logContext.userContext.roles)}, Check if user has required permissions, Verify JWT token is not expired`);
       }
     } else {
-      console.error(`🚫 [${requestId}] No user context available for error analysis`);
+      this.logger.error(`[${requestId}] No user context available for error analysis`);
     }
   }
 

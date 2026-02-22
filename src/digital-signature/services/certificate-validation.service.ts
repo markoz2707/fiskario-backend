@@ -137,12 +137,119 @@ export class CertificateValidationService {
             `${expiredCerts.length} expired, ${expiringSoonCerts.length} expiring soon`
           );
 
-          // Here you would typically send notifications to users
-          // await this.notificationService.sendCertificateExpiryNotification(company.id, expiredCerts, expiringSoonCerts);
+          // Send expiry notifications to users associated with the certificates
+          await this.sendCertificateExpiryNotifications(
+            company.id,
+            company.tenant_id,
+            expiredCerts,
+            expiringSoonCerts,
+          );
         }
       }
     } catch (error) {
       this.logger.error('Certificate expiry check failed', error);
+    }
+  }
+
+  /**
+   * Send certificate expiry notifications by creating Notification records directly
+   */
+  private async sendCertificateExpiryNotifications(
+    companyId: string,
+    tenantId: string,
+    expiredCerts: CertificateInfo[],
+    expiringSoonCerts: CertificateInfo[],
+  ): Promise<void> {
+    try {
+      // Find users associated with the company's certificates (via userIdentifier)
+      const certificates = await this.prisma.digitalCertificate.findMany({
+        where: { company_id: companyId },
+        select: { userIdentifier: true },
+        distinct: ['userIdentifier'],
+      });
+
+      const userIds = certificates
+        .map(cert => cert.userIdentifier)
+        .filter(Boolean);
+
+      if (userIds.length === 0) {
+        this.logger.debug(`No users found for company ${companyId} to notify about certificate expiry`);
+        return;
+      }
+
+      const notifications: Array<{
+        user_id: string;
+        tenant_id: string;
+        type: string;
+        title: string;
+        body: string;
+        data: Record<string, any>;
+        priority: string;
+        status: string;
+      }> = [];
+
+      for (const userId of userIds) {
+        // Create notifications for expired certificates
+        for (const cert of expiredCerts) {
+          notifications.push({
+            user_id: userId,
+            tenant_id: tenantId,
+            type: 'deadline',
+            title: 'Certyfikat cyfrowy wygasł',
+            body: `Certyfikat "${cert.subject}" (nr seryjny: ${cert.serialNumber}) wygasł dnia ${cert.validTo.toLocaleDateString('pl-PL')}. Proszę odnowić certyfikat, aby kontynuować podpisywanie dokumentów.`,
+            data: {
+              certificateId: cert.id,
+              certificateSubject: cert.subject,
+              serialNumber: cert.serialNumber,
+              validTo: cert.validTo.toISOString(),
+              expiryType: 'expired',
+            },
+            priority: 'high',
+            status: 'pending',
+          });
+        }
+
+        // Create notifications for certificates expiring soon
+        for (const cert of expiringSoonCerts) {
+          const daysUntilExpiry = Math.ceil(
+            (cert.validTo.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+          );
+
+          notifications.push({
+            user_id: userId,
+            tenant_id: tenantId,
+            type: 'reminder',
+            title: 'Certyfikat cyfrowy wkrótce wygaśnie',
+            body: `Certyfikat "${cert.subject}" (nr seryjny: ${cert.serialNumber}) wygaśnie za ${daysUntilExpiry} dni (${cert.validTo.toLocaleDateString('pl-PL')}). Zalecamy odnowienie certyfikatu.`,
+            data: {
+              certificateId: cert.id,
+              certificateSubject: cert.subject,
+              serialNumber: cert.serialNumber,
+              validTo: cert.validTo.toISOString(),
+              daysUntilExpiry,
+              expiryType: 'expiring_soon',
+            },
+            priority: 'normal',
+            status: 'pending',
+          });
+        }
+      }
+
+      if (notifications.length > 0) {
+        await this.prisma.notification.createMany({
+          data: notifications,
+        });
+
+        this.logger.log(
+          `Created ${notifications.length} certificate expiry notification(s) for company ${companyId}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send certificate expiry notifications for company ${companyId}: ${error.message}`,
+        error.stack,
+      );
+      // Don't throw - notification failure should not break the expiry check cron job
     }
   }
 

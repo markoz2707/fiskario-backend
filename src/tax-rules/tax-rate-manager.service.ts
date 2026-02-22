@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ZUS_RATES, ZUS_RATES_HISTORY } from '../zus/dto/zus-contribution.dto';
 
@@ -27,6 +27,8 @@ export interface TaxThresholds {
 
 @Injectable()
 export class TaxRateManagerService {
+  private readonly logger = new Logger(TaxRateManagerService.name);
+
   constructor(private prisma: PrismaService) {}
 
   /**
@@ -76,11 +78,11 @@ export class TaxRateManagerService {
       return thresholdForm.parameters as unknown as TaxThresholds;
     }
 
-    // Default 2025 thresholds
+    // Default 2025 thresholds (Polish Deal 2.0, effective since July 2022)
     return {
-      taxFreeAmount: 36000, // 30,000 PLN tax-free amount
+      taxFreeAmount: 30000, // 30,000 PLN tax-free amount
       firstThreshold: 120000,
-      firstRate: 18,
+      firstRate: 12, // 12% first bracket (changed from 17% in Polish Deal 2.0)
       secondRate: 32
     };
   }
@@ -264,7 +266,7 @@ export class TaxRateManagerService {
         await this.extendRateValidity(form.id, form.code);
         updates.push(`Extended validity for ${form.code}`);
       } catch (error) {
-        console.error(`Failed to update ${form.code}:`, error);
+        this.logger.error(`Failed to update ${form.code}`, error instanceof Error ? error.stack : undefined);
       }
     }
 

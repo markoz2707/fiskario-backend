@@ -50,6 +50,7 @@
     "class-validator": "^0.14.2",
     "compression": "^1.7.4",
     "crypto": "^1.0.1",
+    "exceljs": "^4.4.0",
     "express-rate-limit": "^7.1.5",
     "geoip-lite": "^1.4.9",
     "helmet": "^7.1.0",

@@ -1,8 +1,10 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 
 @Injectable()
 export class ApiVersioningMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(ApiVersioningMiddleware.name);
+
   use(req: Request, res: Response, next: NextFunction) {
     // Extract API version from header, query param, or URL path
     const version = this.extractVersion(req);
@@ -16,7 +18,7 @@ export class ApiVersioningMiddleware implements NestMiddleware {
 
     // Log version usage for monitoring
     if (version !== 'v1') {
-      console.log(`📡 [API Version] ${req.method} ${req.url} - Version: ${version}`);
+      this.logger.log(`[API Version] ${req.method} ${req.url} - Version: ${version}`);
     }
 
     next();

@@ -1,8 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { PrismaService } from '../../prisma/prisma.service';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import * as zlib from 'zlib';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -34,15 +38,56 @@ export interface RestoreOptions {
 }
 
 @Injectable()
-export class BackupService {
+export class BackupService implements OnModuleDestroy {
   private readonly logger = new Logger(BackupService.name);
   private readonly backupDir = 'backups';
   private readonly maxBackups = 30;
+  private s3Client: S3Client | null = null;
 
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
-  ) {}
+    private schedulerRegistry: SchedulerRegistry,
+  ) {
+    this.initializeS3Client();
+  }
+
+  onModuleDestroy() {
+    // Clean up all scheduled backup jobs on shutdown
+    try {
+      const jobs = this.schedulerRegistry.getCronJobs();
+      jobs.forEach((_job, name) => {
+        if (name.startsWith('automated-backup-')) {
+          this.schedulerRegistry.deleteCronJob(name);
+          this.logger.log(`Stopped scheduled backup job: ${name}`);
+        }
+      });
+    } catch {
+      // Scheduler may not have any jobs registered
+    }
+  }
+
+  private initializeS3Client(): void {
+    const region = this.configService.get<string>('AWS_REGION', 'eu-central-1');
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
+    const backupBucket = this.configService.get<string>('AWS_S3_BACKUP_BUCKET');
+
+    if (!backupBucket) {
+      this.logger.warn(
+        'AWS_S3_BACKUP_BUCKET not configured. Backup export to S3 will be unavailable.',
+      );
+      return;
+    }
+
+    this.s3Client = new S3Client({
+      region,
+      credentials:
+        accessKeyId && secretAccessKey
+          ? { accessKeyId, secretAccessKey }
+          : undefined,
+    });
+  }
 
   async createBackup(options: BackupOptions = {}): Promise<BackupResult> {
     const backupId = `backup_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -81,11 +126,11 @@ export class BackupService {
 
       // Write backup file
       const fileName = `${backupId}.json`;
-      const filePath = path.join(backupPath, fileName);
+      let filePath = path.join(backupPath, fileName);
 
       if (options.compression) {
-        // Implement compression logic here
         await this.writeCompressedBackup(filePath, backupData);
+        filePath = `${filePath}.gz`;
       } else {
         await fs.writeFile(filePath, JSON.stringify(backupData, null, 2));
       }
@@ -244,14 +289,42 @@ export class BackupService {
     cronExpression: string,
     options: BackupOptions = {},
   ): Promise<void> {
-    // This would integrate with a job scheduler like node-cron
-    // For now, just log the configuration
-    this.logger.log('Automated backup scheduled', {
+    const jobName = `automated-backup-${options.tenantId || 'global'}-${Date.now()}`;
+
+    // Remove any existing job with the same tenant prefix to avoid duplicates
+    const existingPrefix = `automated-backup-${options.tenantId || 'global'}-`;
+    try {
+      const jobs = this.schedulerRegistry.getCronJobs();
+      jobs.forEach((_job, name) => {
+        if (name.startsWith(existingPrefix)) {
+          this.schedulerRegistry.deleteCronJob(name);
+          this.logger.log(`Removed previous scheduled backup job: ${name}`);
+        }
+      });
+    } catch {
+      // No existing jobs to clean up
+    }
+
+    const job = new CronJob(cronExpression, async () => {
+      this.logger.log(`Executing scheduled backup: ${jobName}`);
+      try {
+        const result = await this.createBackup(options);
+        this.logger.log(
+          `Scheduled backup ${jobName} completed with status: ${result.status}`,
+        );
+      } catch (error) {
+        this.logger.error(`Scheduled backup ${jobName} failed`, error);
+      }
+    });
+
+    this.schedulerRegistry.addCronJob(jobName, job);
+    job.start();
+
+    this.logger.log(`Automated backup scheduled`, {
+      jobName,
       cronExpression,
       options,
     });
-
-    // TODO: Implement actual scheduling
   }
 
   private async backupEntity(entity: string, tenantId?: string): Promise<any[]> {
@@ -372,9 +445,13 @@ export class BackupService {
   }
 
   private async writeCompressedBackup(filePath: string, data: any): Promise<void> {
-    // TODO: Implement compression (gzip, etc.)
-    // For now, just write uncompressed
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+    const jsonData = JSON.stringify(data, null, 2);
+    const compressed = zlib.gzipSync(Buffer.from(jsonData, 'utf-8'));
+    const gzFilePath = filePath.endsWith('.gz') ? filePath : `${filePath}.gz`;
+    await fs.writeFile(gzFilePath, compressed);
+    this.logger.log(
+      `Compressed backup written: ${this.formatBytes(jsonData.length)} -> ${this.formatBytes(compressed.length)}`,
+    );
   }
 
   private async cleanupOldBackups(): Promise<void> {
@@ -486,9 +563,70 @@ export class BackupService {
   }
 
   async exportBackupToExternalStorage(backupId: string): Promise<boolean> {
-    // TODO: Implement export to external storage (S3, Azure Blob, etc.)
-    // This is required for long-term retention of tax compliance data
-    this.logger.log(`Exporting backup ${backupId} to external storage`);
-    return true;
+    const backupBucket = this.configService.get<string>('AWS_S3_BACKUP_BUCKET');
+
+    if (!backupBucket || !this.s3Client) {
+      this.logger.warn(
+        `Cannot export backup ${backupId} to S3: AWS_S3_BACKUP_BUCKET is not configured`,
+      );
+      return false;
+    }
+
+    this.logger.log(`Exporting backup ${backupId} to S3 bucket: ${backupBucket}`);
+
+    try {
+      // Determine the local backup file path (check for both .json and .json.gz)
+      const backupDir = path.join(this.backupDir, backupId);
+      let localFilePath: string;
+      let s3Key: string;
+
+      const gzPath = path.join(backupDir, `${backupId}.json.gz`);
+      const jsonPath = path.join(backupDir, `${backupId}.json`);
+
+      try {
+        await fs.access(gzPath);
+        localFilePath = gzPath;
+        s3Key = `backups/${backupId}/${backupId}.json.gz`;
+      } catch {
+        try {
+          await fs.access(jsonPath);
+          localFilePath = jsonPath;
+          s3Key = `backups/${backupId}/${backupId}.json`;
+        } catch {
+          throw new Error(`Backup file not found for ${backupId}`);
+        }
+      }
+
+      const fileContent = await fs.readFile(localFilePath);
+
+      const contentType = localFilePath.endsWith('.gz')
+        ? 'application/gzip'
+        : 'application/json';
+
+      const command = new PutObjectCommand({
+        Bucket: backupBucket,
+        Key: s3Key,
+        Body: fileContent,
+        ContentType: contentType,
+        ServerSideEncryption: 'AES256',
+        Metadata: {
+          backupId,
+          exportedAt: new Date().toISOString(),
+        },
+      });
+
+      await this.s3Client.send(command);
+
+      this.logger.log(
+        `Backup ${backupId} exported to S3: s3://${backupBucket}/${s3Key} (${this.formatBytes(fileContent.length)})`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to export backup ${backupId} to S3: ${error.message}`,
+        error.stack,
+      );
+      return false;
+    }
   }
 }

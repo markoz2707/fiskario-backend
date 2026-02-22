@@ -1,8 +1,10 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class TaxRulesSeedService implements OnModuleInit {
+  private readonly logger = new Logger(TaxRulesSeedService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async onModuleInit() {
@@ -15,9 +17,9 @@ export class TaxRulesSeedService implements OnModuleInit {
       return; // Already seeded
     }
 
-    console.log('Seeding Polish tax forms for 2025...');
+    this.logger.log('Seeding Polish tax forms for 2025-2026...');
 
-    // Create ZUS Rates Form
+    // Create ZUS Rates Form 2025
     const zusRatesForm = await this.prisma.taxForm.create({
       data: {
         name: 'ZUS Contribution Rates 2025',
@@ -33,6 +35,28 @@ export class TaxRulesSeedService implements OnModuleInit {
           chorobowa: { employee: 2.45, total: 2.45 },
           wypadkowa: { employer: 1.67, total: 1.67 },
           zdrowotna: { employee: 9.5, deductible: 7.75, total: 9.5 },
+          fp: { employer: 2.45, total: 2.45 },
+          fgsp: { employer: 0.1, total: 0.1 }
+        },
+      },
+    });
+
+    // Create ZUS Rates Form 2026
+    const zusRatesForm2026 = await this.prisma.taxForm.create({
+      data: {
+        name: 'ZUS Contribution Rates 2026',
+        code: 'ZUS_RATES_2026',
+        description: 'Składki ZUS na ubezpieczenia społeczne i zdrowotne - 2026',
+        category: 'social_insurance',
+        isActive: true,
+        validFrom: new Date('2026-01-01'),
+        validTo: new Date('2026-12-31'),
+        parameters: {
+          emerytalna: { employer: 9.76, employee: 9.76, total: 19.52 },
+          rentowa: { employer: 6.5, employee: 1.5, total: 8.0 },
+          chorobowa: { employee: 2.45, total: 2.45 },
+          wypadkowa: { employer: 1.67, total: 1.67 },
+          zdrowotna: { employee: 9.0, deductible: 7.75, total: 9.0 },
           fp: { employer: 2.45, total: 2.45 },
           fgsp: { employer: 0.1, total: 0.1 }
         },
@@ -237,6 +261,6 @@ export class TaxRulesSeedService implements OnModuleInit {
       },
     });
 
-    console.log('Polish tax forms for 2025 seeded successfully');
+    this.logger.log('Polish tax forms for 2025-2026 seeded successfully');
   }
 }

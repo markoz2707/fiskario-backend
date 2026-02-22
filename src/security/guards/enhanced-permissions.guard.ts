@@ -1,4 +1,4 @@
-import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -18,6 +18,8 @@ export interface EnhancedPermissionsMetadata {
 
 @Injectable()
 export class EnhancedPermissionsGuard implements CanActivate {
+  private readonly logger = new Logger(EnhancedPermissionsGuard.name);
+
   constructor(
     private reflector: Reflector,
     private prisma: PrismaService,
@@ -101,7 +103,7 @@ export class EnhancedPermissionsGuard implements CanActivate {
         );
       }
     } catch (error) {
-      console.error('Error checking user permissions:', error);
+      this.logger.error('Error checking user permissions', error instanceof Error ? error.stack : undefined);
       return false;
     }
   }

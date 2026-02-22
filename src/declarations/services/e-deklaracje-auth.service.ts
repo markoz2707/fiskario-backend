@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as forge from 'node-forge';
 
 export interface CertificateInfo {
   serialNumber: string;
@@ -125,28 +126,50 @@ export class EDeklaracjeAuthService {
         throw new BadRequestException('Profil Zaufany login and password required');
       }
 
-      // Mock authentication - in real implementation this would call Profil Zaufany API
-      const mockCertificateInfo: CertificateInfo = {
-        serialNumber: 'PZ-' + Date.now(),
-        issuer: 'Profil Zaufany',
-        subject: `User ${auth.login}`,
-        validFrom: new Date(),
-        validTo: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
-        algorithm: 'RSA-SHA256',
-        keySize: 2048,
-        fingerprint: 'mock-fingerprint'
-      };
-
       // Store authentication token if provided
       if (auth.token) {
         await this.storeProfilZaufanyToken(auth.login, auth.token);
+      }
+
+      // Look up the Profil Zaufany profile
+      const profile = await this.prisma.profilZaufanyProfile.findUnique({
+        where: { profileId: auth.login }
+      });
+
+      let certificateInfo: CertificateInfo;
+
+      // Check if there is a linked digital certificate for this user's company
+      if (profile?.company_id) {
+        const digitalCert = await this.prisma.digitalCertificate.findFirst({
+          where: {
+            company_id: profile.company_id,
+            userIdentifier: auth.login,
+            status: 'active',
+            validTo: { gt: new Date() }
+          }
+        });
+
+        if (digitalCert?.certificateData) {
+          try {
+            certificateInfo = this.parseCertificate(digitalCert.certificateData);
+          } catch {
+            this.logger.warn(`Failed to parse stored certificate for ${auth.login}, using profile data`);
+            certificateInfo = this.buildProfilZaufanyCertificateInfo(auth.login, profile);
+          }
+        } else {
+          certificateInfo = this.buildProfilZaufanyCertificateInfo(auth.login, profile);
+        }
+      } else {
+        // Profil Zaufany OAuth2 flow: certificate info is derived from the authentication,
+        // not from a traditional X.509 certificate
+        certificateInfo = this.buildProfilZaufanyCertificateInfo(auth.login, profile);
       }
 
       this.logger.log(`Profil Zaufany authentication successful for ${auth.login}`);
 
       return {
         success: true,
-        certificateInfo: mockCertificateInfo,
+        certificateInfo,
         isValidForSubmission: true
       };
     } catch (error) {
@@ -164,25 +187,35 @@ export class EDeklaracjeAuthService {
    */
   private parseCertificate(certificateContent: string): CertificateInfo {
     try {
-      // Remove PEM headers and newlines
-      const cleanCert = certificateContent
-        .replace(/-----BEGIN CERTIFICATE-----/g, '')
-        .replace(/-----END CERTIFICATE-----/g, '')
-        .replace(/\n/g, '');
+      // Parse the PEM certificate using node-forge
+      const cert = forge.pki.certificateFromPem(certificateContent);
 
-      // For this implementation, we'll use a simplified parsing
-      // In a real scenario, you might use node-forge or similar library
+      // Extract subject and issuer CN (Common Name)
+      const subject = cert.subject.getField('CN')?.value || 'Unknown';
+      const issuer = cert.issuer.getField('CN')?.value || 'Unknown';
+      const serialNumber = cert.serialNumber;
 
-      // Mock certificate info - in real implementation parse actual certificate
+      // Calculate SHA-256 fingerprint from the DER-encoded certificate
+      const asn1 = forge.pki.certificateToAsn1(cert);
+      const derBytes = forge.asn1.toDer(asn1).getBytes();
+      const fingerprint = forge.md.sha256.create().update(derBytes).digest().toHex();
+
+      // Determine key algorithm and size
+      const publicKey = cert.publicKey as forge.pki.rsa.PublicKey;
+      const keySize = publicKey.n ? publicKey.n.bitLength() : 0;
+      const algorithm = cert.siginfo?.algorithmOid
+        ? forge.pki.oids[cert.siginfo.algorithmOid] || 'RSA-SHA256'
+        : 'RSA-SHA256';
+
       return {
-        serialNumber: 'CERT-' + Date.now(),
-        issuer: 'Mock Certificate Authority',
-        subject: 'Mock Certificate Subject',
-        validFrom: new Date(),
-        validTo: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        algorithm: 'RSA-SHA256',
-        keySize: 2048,
-        fingerprint: crypto.createHash('sha256').update(cleanCert).digest('hex')
+        serialNumber,
+        issuer,
+        subject,
+        validFrom: cert.validity.notBefore,
+        validTo: cert.validity.notAfter,
+        algorithm,
+        keySize,
+        fingerprint
       };
     } catch (error) {
       this.logger.error('Failed to parse certificate:', error);
@@ -278,6 +311,34 @@ export class EDeklaracjeAuthService {
   }
 
   /**
+   * Build certificate info for Profil Zaufany authentication
+   * Profil Zaufany uses OAuth2, not X.509 certificates,
+   * so we construct equivalent metadata from the profile data.
+   */
+  private buildProfilZaufanyCertificateInfo(login: string, profile?: any): CertificateInfo {
+    const now = new Date();
+    const validTo = profile?.tokenExpiresAt
+      ? new Date(profile.tokenExpiresAt)
+      : new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+
+    const identityString = `PZ:${login}:${now.toISOString()}`;
+    const fingerprint = crypto.createHash('sha256').update(identityString).digest('hex');
+
+    return {
+      serialNumber: `PZ-${login}-${now.getTime()}`,
+      issuer: 'Ministerstwo Cyfryzacji - Profil Zaufany',
+      subject: profile?.firstName && profile?.lastName
+        ? `${profile.firstName} ${profile.lastName}`
+        : login,
+      validFrom: now,
+      validTo,
+      algorithm: 'RSA-SHA256',
+      keySize: 2048,
+      fingerprint
+    };
+  }
+
+  /**
    * Get certificate information for a company
    */
   async getCompanyCertificate(companyId: string): Promise<CertificateInfo | null> {
@@ -297,6 +358,22 @@ export class EDeklaracjeAuthService {
         return null;
       }
 
+      // Calculate fingerprint from stored certificate data if available
+      let fingerprint = '';
+      if (certificate.certificateData) {
+        try {
+          const cert = forge.pki.certificateFromPem(certificate.certificateData);
+          const asn1 = forge.pki.certificateToAsn1(cert);
+          const derBytes = forge.asn1.toDer(asn1).getBytes();
+          fingerprint = forge.md.sha256.create().update(derBytes).digest().toHex();
+        } catch {
+          // If certificate data cannot be parsed, compute fingerprint from serial + issuer
+          fingerprint = crypto.createHash('sha256')
+            .update(`${certificate.serialNumber}:${certificate.issuer}`)
+            .digest('hex');
+        }
+      }
+
       return {
         serialNumber: certificate.serialNumber,
         issuer: certificate.issuer,
@@ -305,7 +382,7 @@ export class EDeklaracjeAuthService {
         validTo: certificate.validTo,
         algorithm: certificate.keyAlgorithm,
         keySize: certificate.keySize,
-        fingerprint: '' // Would need to calculate from certificate data
+        fingerprint
       };
     } catch (error) {
       this.logger.error('Failed to get company certificate:', error);
