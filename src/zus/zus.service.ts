@@ -3,7 +3,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateZUSEmployeeDto, UpdateZUSEmployeeDto } from './dto/zus-employee.dto';
 import { CreateZUSRegistrationDto, UpdateZUSRegistrationDto, ZUSFormData, ZUSReportData } from './dto/zus-registration.dto';
 import { CreateZUSReportDto, UpdateZUSReportDto } from './dto/zus-report.dto';
-import { CreateZUSContributionDto, ZUSContributionCalculation, ZUS_RATES } from './dto/zus-contribution.dto';
+import {
+  CreateZUSContributionDto,
+  ZUSContributionCalculation,
+  ZUS_RATES,
+  JDGTierType,
+  ZUS_JDG_TIERS,
+  ZUS_REFERENCE_VALUES_2026,
+} from './dto/zus-contribution.dto';
 
 @Injectable()
 export class ZusService {
@@ -129,6 +136,10 @@ export class ZusService {
       throw new NotFoundException('Employee not found');
     }
 
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, tenant_id: tenantId },
+    });
+
     const formData: ZUSFormData = {
       formType: dto.formType,
       registrationDate: new Date(dto.registrationDate),
@@ -141,9 +152,9 @@ export class ZusService {
       insuranceTypes: dto.insuranceTypes,
       contributionBasis: dto.contributionBasis,
       company: {
-        name: '', // Will be populated from company data
-        nip: '',
-        address: '',
+        name: company?.name || '',
+        nip: company?.nip || '',
+        address: company?.address || '',
       },
     };
 
@@ -177,14 +188,18 @@ export class ZusService {
       include: { employee: true },
     });
 
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, tenant_id: tenantId },
+    });
+
     const reportData: ZUSReportData = {
       reportType: dto.reportType,
       period: dto.period,
       reportDate: new Date(dto.reportDate),
       company: {
-        name: '',
-        nip: '',
-        address: '',
+        name: company?.name || '',
+        nip: company?.nip || '',
+        address: company?.address || '',
       },
       summary: {
         totalEmployees: contributions.length,
@@ -237,6 +252,55 @@ export class ZusService {
       where: { tenant_id: tenantId, company_id: companyId },
       include: { contributions: { include: { employee: true } } },
       orderBy: { period: 'desc' },
+    });
+  }
+
+  async updateRegistration(tenantId: string, registrationId: string, dto: UpdateZUSRegistrationDto) {
+    const registration = await this.prisma.zUSRegistration.findFirst({
+      where: { id: registrationId, tenant_id: tenantId },
+    });
+
+    if (!registration) {
+      throw new NotFoundException('Registration not found');
+    }
+
+    const updateData: any = {};
+
+    if (dto.formType !== undefined) updateData.formType = dto.formType;
+    if (dto.registrationDate !== undefined) updateData.registrationDate = new Date(dto.registrationDate);
+    if (dto.insuranceTypes !== undefined) updateData.insuranceTypes = dto.insuranceTypes;
+    if (dto.contributionBasis !== undefined) updateData.contributionBasis = dto.contributionBasis;
+    if (dto.zusReferenceNumber !== undefined) updateData.zusReferenceNumber = dto.zusReferenceNumber;
+    if (dto.upoNumber !== undefined) updateData.upoNumber = dto.upoNumber;
+    if (dto.upoDate !== undefined) updateData.upoDate = new Date(dto.upoDate);
+
+    return this.prisma.zUSRegistration.update({
+      where: { id: registrationId },
+      data: updateData,
+    });
+  }
+
+  async updateReport(tenantId: string, reportId: string, dto: UpdateZUSReportDto) {
+    const report = await this.prisma.zUSReport.findFirst({
+      where: { id: reportId, tenant_id: tenantId },
+    });
+
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    const updateData: any = {};
+
+    if (dto.reportType !== undefined) updateData.reportType = dto.reportType;
+    if (dto.period !== undefined) updateData.period = dto.period;
+    if (dto.reportDate !== undefined) updateData.reportDate = new Date(dto.reportDate);
+    if (dto.zusReferenceNumber !== undefined) updateData.zusReferenceNumber = dto.zusReferenceNumber;
+    if (dto.upoNumber !== undefined) updateData.upoNumber = dto.upoNumber;
+    if (dto.upoDate !== undefined) updateData.upoDate = new Date(dto.upoDate);
+
+    return this.prisma.zUSReport.update({
+      where: { id: reportId },
+      data: updateData,
     });
   }
 
@@ -329,6 +393,127 @@ export class ZusService {
         totalFGSP: reports.reduce((sum, r) => sum + (r.data as any)?.summary?.totalFGSPEmployee || 0, 0)
       }
     };
+  }
+
+  // JDG ZUS Contribution Tiers
+
+  /**
+   * Determine JDG tier based on registration date and annual revenue
+   */
+  determineJDGTier(registrationDate: Date, annualRevenue?: number): JDGTierType {
+    const now = new Date();
+    const monthsSinceRegistration = this.monthsBetween(registrationDate, now);
+
+    // First 6 months: ulga na start
+    if (monthsSinceRegistration < 6) {
+      return 'ulga_na_start';
+    }
+
+    // Months 7-30 (6 months ulga + 24 months preferencyjny): ZUS preferencyjny
+    if (monthsSinceRegistration < 30) {
+      return 'preferencyjny';
+    }
+
+    // After preferential period: check Mały ZUS Plus eligibility
+    if (annualRevenue !== undefined && annualRevenue < ZUS_REFERENCE_VALUES_2026.malyZusPlusMaxRevenue) {
+      return 'maly_zus_plus';
+    }
+
+    return 'pelny';
+  }
+
+  /**
+   * Calculate JDG contributions based on tier
+   */
+  calculateJDGContributions(
+    tier: JDGTierType,
+    annualIncome?: number,
+  ): ZUSContributionCalculation & { tier: JDGTierType; tierInfo: string; healthBasis: number } {
+    const tierConfig = ZUS_JDG_TIERS[tier];
+    let socialBasis: number;
+    let healthBasis: number;
+
+    switch (tier) {
+      case 'ulga_na_start':
+        // Only health insurance, no social contributions
+        socialBasis = 0;
+        healthBasis = ZUS_REFERENCE_VALUES_2026.minimumWage;
+        break;
+
+      case 'preferencyjny':
+        // 30% of minimum wage as social basis
+        socialBasis = ZUS_REFERENCE_VALUES_2026.minBasisPreferencyjny;
+        healthBasis = ZUS_REFERENCE_VALUES_2026.minimumWage;
+        break;
+
+      case 'maly_zus_plus':
+        // Basis proportional to income, within bounds
+        if (annualIncome !== undefined) {
+          const monthlyIncome = annualIncome / 12;
+          const calculatedBasis = monthlyIncome * 0.5; // 50% of avg monthly income
+          socialBasis = Math.max(
+            ZUS_REFERENCE_VALUES_2026.malyZusPlusMinBasis,
+            Math.min(calculatedBasis, ZUS_REFERENCE_VALUES_2026.malyZusPlusMaxBasis),
+          );
+        } else {
+          socialBasis = ZUS_REFERENCE_VALUES_2026.malyZusPlusMinBasis;
+        }
+        healthBasis = ZUS_REFERENCE_VALUES_2026.minimumWage;
+        break;
+
+      case 'pelny':
+      default:
+        // Full ZUS: 60% of projected average wage
+        socialBasis = ZUS_REFERENCE_VALUES_2026.minBasisPelny;
+        healthBasis = ZUS_REFERENCE_VALUES_2026.minimumWage;
+        break;
+    }
+
+    const round = (v: number) => Math.round(v * 100) / 100;
+
+    // Social insurance contributions
+    const emerytalnaEmployer = tierConfig.healthOnly ? 0 : round((socialBasis * ZUS_RATES.emerytalna.employer) / 100);
+    const emerytalnaEmployee = tierConfig.healthOnly ? 0 : round((socialBasis * ZUS_RATES.emerytalna.employee) / 100);
+    const rentowaEmployer = tierConfig.healthOnly ? 0 : round((socialBasis * ZUS_RATES.rentowa.employer) / 100);
+    const rentowaEmployee = tierConfig.healthOnly ? 0 : round((socialBasis * ZUS_RATES.rentowa.employee) / 100);
+    const chorobowaEmployee = tierConfig.healthOnly ? 0 : round((socialBasis * ZUS_RATES.chorobowa.employee) / 100);
+    const wypadkowaEmployer = tierConfig.healthOnly ? 0 : round((socialBasis * ZUS_RATES.wypadkowa.employer) / 100);
+
+    // Health insurance (always applicable)
+    const zdrowotnaEmployee = round((healthBasis * ZUS_RATES.zdrowotna.employee) / 100);
+    const zdrowotnaDeductible = round((healthBasis * ZUS_RATES.zdrowotna.deductible) / 100);
+
+    // FP + FGSP (exempt for preferential tiers)
+    const fpEmployee = tierConfig.fpExempt ? 0 : round((socialBasis * ZUS_RATES.fp.employer) / 100);
+    const fgspEmployee = tierConfig.fpExempt ? 0 : round((socialBasis * ZUS_RATES.fgsp.employer) / 100);
+
+    const totalEmployer = emerytalnaEmployer + rentowaEmployer + wypadkowaEmployer + fpEmployee + fgspEmployee;
+    const totalEmployee = emerytalnaEmployee + rentowaEmployee + chorobowaEmployee + zdrowotnaEmployee;
+    const totalContribution = totalEmployer + totalEmployee;
+
+    return {
+      basis: socialBasis,
+      healthBasis,
+      tier,
+      tierInfo: tierConfig.label,
+      emerytalnaEmployer,
+      emerytalnaEmployee,
+      rentowaEmployer,
+      rentowaEmployee,
+      chorobowaEmployee,
+      wypadkowaEmployer,
+      zdrowotnaEmployee,
+      zdrowotnaDeductible,
+      fpEmployee,
+      fgspEmployee,
+      totalEmployer,
+      totalEmployee,
+      totalContribution,
+    };
+  }
+
+  private monthsBetween(start: Date, end: Date): number {
+    return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
   }
 
   // Generate XML for ZUS declarations

@@ -19,6 +19,10 @@ export class InvoicingService {
     private taxRulesService: TaxRulesService,
   ) {}
 
+  // GTU codes that require mandatory split payment (MPP) when gross > 15000 PLN
+  private readonly MPP_GTU_CODES = ['GTU_01', 'GTU_02', 'GTU_03', 'GTU_04', 'GTU_05', 'GTU_06', 'GTU_07', 'GTU_08', 'GTU_09', 'GTU_10', 'GTU_11', 'GTU_12', 'GTU_13'];
+  private readonly MPP_GROSS_THRESHOLD = 15000; // PLN
+
   async createInvoice(tenant_id: string, data: any) {
     this.logger.log(`Creating invoice for tenant ${tenant_id}`);
     // Validate KSeF compliance
@@ -29,6 +33,15 @@ export class InvoicingService {
 
     // Calculate totals
     const { totalNet, totalVat, totalGross } = this.calculateTotals(data.items);
+
+    // MPP (Split Payment) validation
+    const mppRequired = this.isMPPRequired(data.items, totalGross);
+    const splitPayment = data.splitPayment || mppRequired;
+    const splitPaymentAmount = splitPayment ? totalVat : null;
+
+    if (mppRequired && !splitPayment) {
+      this.logger.warn(`Invoice requires mandatory split payment (MPP) - gross ${totalGross} PLN with MPP-eligible GTU codes`);
+    }
 
     // Create or find buyer
     let buyer_id: string | null = null;
@@ -73,6 +86,8 @@ export class InvoicingService {
         totalNet,
         totalVat,
         totalGross,
+        splitPayment,
+        splitPaymentAmount,
         items: {
           create: data.items.map(item => ({
             description: item.description,
@@ -105,6 +120,15 @@ export class InvoicingService {
     await this.queueKSeFSubmission(invoice.id, tenant_id);
 
     return invoice;
+  }
+
+  private isMPPRequired(items: any[], totalGross: number): boolean {
+    if (totalGross < this.MPP_GROSS_THRESHOLD) return false;
+
+    // Check if any item has a GTU code that requires MPP
+    return items.some(item =>
+      item.gtu && this.MPP_GTU_CODES.includes(item.gtu.toUpperCase()),
+    );
   }
 
   private validateKSeF(data: any) {
@@ -164,7 +188,7 @@ export class InvoicingService {
       // Get invoice details
       const invoice = await this.prisma.invoice.findUnique({
         where: { id: invoiceId },
-        include: { items: true },
+        include: { items: true, company: true },
       });
 
       if (!invoice) {
@@ -214,9 +238,9 @@ export class InvoicingService {
       invoiceNumber: invoice.number,
       issueDate: invoice.date.toISOString().split('T')[0],
       dueDate: invoice.dueDate?.toISOString().split('T')[0] || invoice.date.toISOString().split('T')[0],
-      sellerName: 'Your Company Name', // TODO: Get from company data
-      sellerNip: '1234567890', // TODO: Get from company data
-      sellerAddress: 'Company Address', // TODO: Get from company data
+      sellerName: invoice.company?.name || '',
+      sellerNip: invoice.company?.nip || '',
+      sellerAddress: invoice.company?.address || '',
       buyerName: invoice.buyer?.name || '',
       buyerNip: invoice.buyer?.nip || '',
       buyerAddress: invoice.buyer?.address || '',
@@ -234,6 +258,8 @@ export class InvoicingService {
       totalVat: invoice.totalVat,
       totalGross: invoice.totalGross,
       paymentMethod: 'przelew',
+      splitPayment: invoice.splitPayment || false,
+      splitPaymentAmount: invoice.splitPaymentAmount || undefined,
     };
   }
 

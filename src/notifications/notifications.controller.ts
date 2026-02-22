@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Put, Delete, Query, Param, Body, UseGuards, Req, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Query, Param, Body, UseGuards, Req, HttpException, HttpStatus, UsePipes, ValidationPipe } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { PushNotificationService, NotificationTemplate } from './services/push-notification.service';
 import { DeadlineManagementService, DeadlineInfo } from './services/deadline-management.service';
 import { StatusCenterService, OfficialCommunication } from './services/status-center.service';
+import { CreateTemplateDto, SendTestNotificationDto, RecordCommunicationDto, UpdateCommunicationStatusDto, RecordSubmissionStatusDto } from './dto/notification.dto';
 import { Request } from 'express';
 
 interface AuthenticatedUser {
@@ -16,6 +17,7 @@ interface AuthenticatedUser {
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
 export class NotificationsController {
   constructor(
     private readonly pushNotificationService: PushNotificationService,
@@ -28,7 +30,7 @@ export class NotificationsController {
   @Roles('admin')
   async createTemplate(
     @Req() req: Request & { user: AuthenticatedUser },
-    @Body() templateData: Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt'>,
+    @Body() templateData: CreateTemplateDto,
   ) {
     try {
       const { tenant_id } = req.user;
@@ -53,7 +55,8 @@ export class NotificationsController {
     @Query('type') type?: string,
   ) {
     try {
-      const templates = await this.pushNotificationService.getTemplates(type);
+      const { tenant_id } = req.user;
+      const templates = await this.pushNotificationService.getTemplates(tenant_id, type);
 
       return {
         success: true,
@@ -372,20 +375,7 @@ export class NotificationsController {
   @Roles('admin')
   async recordCommunication(
     @Req() req: Request & { user: AuthenticatedUser },
-    @Body() communicationData: {
-      type: 'submission' | 'confirmation' | 'rejection' | 'correction' | 'inquiry';
-      entityType: 'invoice' | 'declaration' | 'zus' | 'tax';
-      entityId: string;
-      status: 'sent' | 'delivered' | 'acknowledged' | 'rejected' | 'pending_response';
-      direction: 'outbound' | 'inbound';
-      officialBody: 'urzad_skarbowy' | 'zus' | 'ksef' | 'other';
-      referenceNumber?: string;
-      upoNumber?: string;
-      description: string;
-      content: Record<string, any>;
-      responseRequired?: boolean;
-      responseDeadline?: string;
-    },
+    @Body() communicationData: RecordCommunicationDto,
   ) {
     try {
       const { tenant_id, company_id } = req.user;
@@ -416,10 +406,7 @@ export class NotificationsController {
   @Roles('admin')
   async updateCommunicationStatus(
     @Param('communicationId') communicationId: string,
-    @Body() body: {
-      status: 'sent' | 'delivered' | 'acknowledged' | 'rejected' | 'pending_response';
-      additionalData?: Record<string, any>;
-    },
+    @Body() body: UpdateCommunicationStatusDto,
   ) {
     try {
       const communication = await this.statusCenterService.updateCommunicationStatus(
@@ -444,14 +431,7 @@ export class NotificationsController {
   @Roles('user', 'admin')
   async recordSubmissionStatus(
     @Req() req: Request & { user: AuthenticatedUser },
-    @Body() body: {
-      entityType: 'invoice' | 'declaration' | 'zus' | 'tax';
-      entityId: string;
-      status: 'submitted' | 'accepted' | 'rejected';
-      referenceNumber?: string;
-      upoNumber?: string;
-      details?: Record<string, any>;
-    },
+    @Body() body: RecordSubmissionStatusDto,
   ) {
     try {
       const { tenant_id, company_id } = req.user;
@@ -590,10 +570,7 @@ export class NotificationsController {
   @Roles('admin')
   async sendTestNotification(
     @Req() req: Request & { user: AuthenticatedUser },
-    @Body() body: {
-      templateName: string;
-      variables?: Record<string, any>;
-    },
+    @Body() body: SendTestNotificationDto,
   ) {
     try {
       const { userId, tenant_id } = req.user;

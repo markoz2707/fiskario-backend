@@ -1,30 +1,24 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
-  provider = "prisma-client-js"
-  output   = "../generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../generated/prisma"
   previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  extensions = [pgcrypto(map: "pgcrypto")]
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgcrypto]
 }
 
 model User {
-  id        String   @id @default(cuid())
-  tenant_id String
-  email     String   @unique
-  password  String?
-  passwordEncrypted String? // Encrypted password field
-  roles     Role[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String   @id @default(cuid())
+  tenant_id         String
+  email             String   @unique
+  password          String?
+  passwordEncrypted String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  roles             Role[]   @relation("RoleToUser")
 
   @@index([tenant_id])
 }
@@ -33,70 +27,75 @@ model Role {
   id          String       @id @default(cuid())
   tenant_id   String
   name        String
-  permissions Permission[]
-  users       User[]
+  permissions Permission[] @relation("PermissionToRole")
+  users       User[]       @relation("RoleToUser")
 
   @@index([tenant_id])
 }
 
 model Permission {
-  id     String @id @default(cuid())
-  name   String @unique
-  roles  Role[]
+  id    String @id @default(cuid())
+  name  String @unique
+  roles Role[] @relation("PermissionToRole")
 }
 
 model Company {
-      id        String       @id @default(cuid())
-      tenant_id String
-      name      String
-      nip       String?      // Polish tax number
-      nipEncrypted String?   // Encrypted NIP field
-      regon     String?      // Polish business registry number
-      address   String?
-      taxOffice String?      // Tax office name
-      vatStatus String?      // VAT status (active, inactive, etc.)
-      isActive  Boolean      @default(true)
-      taxForm   String?      // individual, partnership, corporation
-      vatPayer  Boolean      @default(false)
-      invoices  Invoice[]
-      declarations Declaration[]
-      zusSubmissions ZUSSubmission[]
-      vatRegisters VATRegister[]
-      taxCalculations TaxCalculation[]
-      auditLogs AuditLog[]
-      zusEmployees ZUSEmployee[]
-      zusRegistrations ZUSRegistration[]
-      zusReports ZUSReport[]
-      zusContributions ZUSContribution[]
-      dpiaDocuments DPIADocument[]
-      taxSettings CompanyTaxSettings[]
-      digitalCertificates DigitalCertificate[]
-      signatureRecords SignatureRecord[]
-      profilZaufanyProfiles ProfilZaufanyProfile[]
+  id                    String                 @id @default(cuid())
+  tenant_id             String
+  name                  String
+  nip                   String?
+  nipEncrypted          String?
+  address               String?
+  taxForm               String?
+  vatPayer              Boolean                @default(false)
+  isActive              Boolean                @default(true)
+  regon                 String?
+  taxOffice             String?
+  vatStatus             String?
+  auditLogs             AuditLog[]
+  taxSettings           CompanyTaxSettings[]
+  dpiaDocuments         DPIADocument[]
+  declarations          Declaration[]
+  digitalCertificates   DigitalCertificate[]
+  invoices              Invoice[]
+  profilZaufanyProfiles ProfilZaufanyProfile[]
+  signatureRecords      SignatureRecord[]
+  taxCalculations       TaxCalculation[]
+  vatRegisters          VATRegister[]
+  zusContributions      ZUSContribution[]
+  zusEmployees          ZUSEmployee[]
+  zusRegistrations      ZUSRegistration[]
+  zusReports            ZUSReport[]
+  zusSubmissions        ZUSSubmission[]
+  kpirEntries           KPiREntry[]
+  remanents             Remanent[]
+  fixedAssets           FixedAsset[]
+  depreciationEntries   DepreciationEntry[]
+  annualTaxReturns      AnnualTaxReturn[]
+  employmentIncomes     EmploymentIncome[]
+  chatConversations     ChatConversation[]
 
-      @@index([tenant_id])
- }
+  @@index([tenant_id])
+}
 
 model Buyer {
-  id            String   @id @default(cuid())
-  tenant_id     String
-  name          String
-  nip           String?  // Polish tax number
-  nipEncrypted  String?  // Encrypted NIP field
-  address       String?
-  city          String?
-  postalCode    String?
-  country       String   @default("PL")
-  email         String?
-  phone         String?
-  website       String?
-  notes         String?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relations
-  invoices      Invoice[]
+  id           String    @id @default(cuid())
+  tenant_id    String
+  name         String
+  nip          String?
+  nipEncrypted String?
+  address      String?
+  city         String?
+  postalCode   String?
+  country      String    @default("PL")
+  email        String?
+  phone        String?
+  website      String?
+  notes        String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  invoices     Invoice[]
 
   @@index([tenant_id])
   @@index([nip])
@@ -104,116 +103,145 @@ model Buyer {
 }
 
 model Invoice {
-  id            String   @id @default(cuid())
-  tenant_id     String
-  company_id    String
-  company       Company  @relation(fields: [company_id], references: [id])
-  buyer_id      String?
-  buyer         Buyer?   @relation(fields: [buyer_id], references: [id])
-  number        String
-  series        String
-  date          DateTime
-  dueDate       DateTime?
-  items         InvoiceItem[]
-  totalNet      Float
-  totalVat      Float
-  totalGross    Float
-  status        String   @default("draft") // draft, issued, sent
-  pdfUrl        String?
-  ksefStatus    String?  // pending, submitted, confirmed
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                  String        @id @default(cuid())
+  tenant_id           String
+  company_id          String
+  number              String
+  series              String
+  date                DateTime
+  dueDate             DateTime?
+  totalNet            Float
+  totalVat            Float
+  totalGross          Float
+  status              String        @default("draft")
+  pdfUrl              String?
+  ksefStatus          String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  buyer_id            String?
+  approvalNotes       String?
+  approvalStatus      String?
+  approvedAt          DateTime?
+  approvedBy          String?
+  currency            String?       @default("PLN")
+  exchangeRate        Float?
+  isIncoming          Boolean       @default(false)
+  ksefDownloadDate    DateTime?
+  ksefInvoiceNumber   String?       @unique
+  ksefReferenceNumber String?
+  ksefSellerNip       String?
+  ksefSubmittedAt     DateTime?
+  ksefUpoNumber       String?
+  ksefXmlContent      String?
+  paymentMethod       String?
+  receivedFromKsef    Boolean       @default(false)
+  rejectionReason     String?
+  type                String?       @default("standard") // 'standard' | 'correction' | 'advance' | 'proforma'
+  correctionOf        String?       // ID of original invoice for corrections
+  correctionReason    String?       // Reason for correction
+  splitPayment        Boolean       @default(false) // Mechanizm podzielonej płatności (MPP)
+  splitPaymentAmount  Float?        // Kwota MPP (VAT amount for split payment)
+  buyer               Buyer?        @relation(fields: [buyer_id], references: [id])
+  company             Company       @relation(fields: [company_id], references: [id])
+  items               InvoiceItem[]
 
   @@index([tenant_id])
   @@index([buyer_id])
+  @@index([ksefInvoiceNumber])
+  @@index([receivedFromKsef])
+  @@index([isIncoming])
+  @@index([approvalStatus])
+  @@index([ksefStatus])
+  @@index([correctionOf])
+  @@index([type])
 }
 
 model InvoiceItem {
   id          String  @id @default(cuid())
   invoice_id  String
-  invoice     Invoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
   description String
   quantity    Float
   unitPrice   Float
   vatRate     Float
-  gtu         String? // GTU code
+  gtu         String?
   netAmount   Float
   vatAmount   Float
   grossAmount Float
+  invoice     Invoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
 }
 
 model Declaration {
-   id         String   @id @default(cuid())
-   tenant_id  String
-   company_id String
-   company    Company  @relation(fields: [company_id], references: [id])
-   type       String   // VAT-7, JPK_V7, PIT, CIT
-   period     String   // YYYY-MM for monthly, YYYY-KX for quarterly
-   variant    String?  // M for monthly, K for quarterly (JPK_V7)
-   data       Json     // declaration data
-   status     String   @default("draft") // draft, calculating, ready, submitted, accepted, rejected
-   submittedAt DateTime?
-   upoNumber  String?  // Official confirmation number from US
-   upoDate    DateTime? // UPO confirmation date
-   xmlContent String?  // Generated XML for submission
-   signatureType String? // profil_zaufany, qes, none
-   createdAt  DateTime @default(now())
-   updatedAt  DateTime @updatedAt
+  id            String    @id @default(cuid())
+  tenant_id     String
+  company_id    String
+  type          String
+  period        String
+  variant       String?
+  data          Json
+  status        String    @default("draft")
+  submittedAt   DateTime?
+  upoNumber     String?
+  upoDate       DateTime?
+  xmlContent    String?
+  signatureType String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  company       Company   @relation(fields: [company_id], references: [id])
 
-   @@index([tenant_id])
-   @@index([company_id])
-   @@index([type])
-   @@index([period])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([type])
+  @@index([period])
 }
 
 model ZUSEmployee {
-   id           String   @id @default(cuid())
-   tenant_id    String
-   company_id   String
-   company      Company  @relation(fields: [company_id], references: [id])
-   pesel        String?  // Personal identification number
-   peselEncrypted String? // Encrypted PESEL field
-   firstName    String
-   lastName     String
-   birthDate    DateTime
-   address      String
-   phone        String?
-   email        String?
-   employmentDate DateTime
-   terminationDate DateTime?
-   insuranceStartDate DateTime
-   isOwner      Boolean  @default(false) // Owner vs employee
-   contractType String   // employment, mandate, specific_task
-   salaryBasis  Float    // Basis for social insurance calculation
-   zusRegistrations ZUSRegistration[]
-   zusContributions ZUSContribution[]
-   createdAt    DateTime @default(now())
-   updatedAt    DateTime @updatedAt
+  id                 String            @id @default(cuid())
+  tenant_id          String
+  company_id         String
+  pesel              String?
+  peselEncrypted     String?
+  firstName          String
+  lastName           String
+  birthDate          DateTime
+  address            String
+  phone              String?
+  email              String?
+  employmentDate     DateTime
+  terminationDate    DateTime?
+  insuranceStartDate DateTime
+  isOwner            Boolean           @default(false)
+  contractType       String
+  salaryBasis        Float
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  zusContributions   ZUSContribution[]
+  company            Company           @relation(fields: [company_id], references: [id])
+  zusRegistrations   ZUSRegistration[]
 
-   @@index([tenant_id])
-   @@index([company_id])
-   @@index([pesel])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([pesel])
 }
 
 model ZUSRegistration {
-  id           String   @id @default(cuid())
-  tenant_id    String
-  company_id   String
-  company      Company  @relation(fields: [company_id], references: [id])
-  employee_id  String
-  employee     ZUSEmployee @relation(fields: [employee_id], references: [id], onDelete: Cascade)
-  formType     String   // ZUA, ZZA, ZWUA
-  registrationDate DateTime
-  insuranceTypes Json   // Types of insurance: emerytalna, rentowa, chorobowa, wypadkowa, zdrowotna
-  contributionBasis Float // Basis for calculations
-  status       String   @default("draft") // draft, submitted, confirmed, cancelled
+  id                 String      @id @default(cuid())
+  tenant_id          String
+  company_id         String
+  employee_id        String
+  formType           String
+  registrationDate   DateTime
+  insuranceTypes     Json
+  contributionBasis  Float
+  status             String      @default("draft")
   zusReferenceNumber String?
-  upoNumber    String?  // Official confirmation number
-  upoDate      DateTime?
-  submittedAt  DateTime?
-  data         Json     // Complete form data
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  upoNumber          String?
+  upoDate            DateTime?
+  submittedAt        DateTime?
+  data               Json
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  company            Company     @relation(fields: [company_id], references: [id])
+  employee           ZUSEmployee @relation(fields: [employee_id], references: [id], onDelete: Cascade)
 
   @@index([tenant_id])
   @@index([company_id])
@@ -222,24 +250,24 @@ model ZUSRegistration {
 }
 
 model ZUSReport {
-  id           String   @id @default(cuid())
-  tenant_id    String
-  company_id   String
-  company      Company  @relation(fields: [company_id], references: [id])
-  reportType   String   // RCA, RZA, RSA, DRA, RPA
-  period       String   // YYYY-MM for monthly, YYYY for annual
-  reportDate   DateTime
-  totalEmployees Int    @default(0)
-  totalContributions Float @default(0)
-  status       String   @default("draft") // draft, submitted, confirmed, corrected
+  id                 String            @id @default(cuid())
+  tenant_id          String
+  company_id         String
+  reportType         String
+  period             String
+  reportDate         DateTime
+  totalEmployees     Int               @default(0)
+  totalContributions Float             @default(0)
+  status             String            @default("draft")
   zusReferenceNumber String?
-  upoNumber    String?  // Official confirmation number
-  upoDate      DateTime?
-  submittedAt  DateTime?
-  data         Json     // Complete report data
-  contributions ZUSContribution[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  upoNumber          String?
+  upoDate            DateTime?
+  submittedAt        DateTime?
+  data               Json
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  contributions      ZUSContribution[]
+  company            Company           @relation(fields: [company_id], references: [id])
 
   @@index([tenant_id])
   @@index([company_id])
@@ -248,43 +276,34 @@ model ZUSReport {
 }
 
 model ZUSContribution {
-  id           String   @id @default(cuid())
-  tenant_id    String
-  company_id   String
-  company      Company  @relation(fields: [company_id], references: [id])
-  employee_id  String?
-  employee     ZUSEmployee? @relation(fields: [employee_id], references: [id], onDelete: Cascade)
-  report_id    String?
-  report       ZUSReport? @relation(fields: [report_id], references: [id], onDelete: Cascade)
-  period       String   // YYYY-MM
-  contributionDate DateTime
-
-  // Social Insurance Contributions (ubezpieczenia społeczne)
-  emerytalnaEmployer Float @default(0) // Emerytalna - employer part (9.76%)
-  emerytalnaEmployee Float @default(0) // Emerytalna - employee part (9.76%)
-  rentowaEmployer    Float @default(0) // Rentowa - employer part (6.5%)
-  rentowaEmployee    Float @default(0) // Rentowa - employee part (1.5%)
-  chorobowaEmployee  Float @default(0) // Chorobowa - employee part (2.45%)
-  wypadkowaEmployer  Float @default(0) // Wypadkowa - employer part (0.67-3.33%)
-
-  // Health Insurance (ubezpieczenie zdrowotne)
-  zdrowotnaEmployee  Float @default(0) // Zdrowotna - employee part (9%)
-  zdrowotnaDeductible Float @default(0) // Amount deductible from tax
-
-  // Other contributions
-  fpEmployee         Float @default(0) // Fundusz Pracy - employee (2.45%)
-  fgspEmployee       Float @default(0) // FGŚP - employee (0.1%)
-
-  // Bases for calculations
-  basisEmerytalnaRentowa Float @default(0)
-  basisChorobowa         Float @default(0)
-  basisZdrowotna         Float @default(0)
-  basisFPFGSP            Float @default(0)
-
-  zusFormType          String? // ZUS RCA, ZUS RZA, etc.
-  status               String  @default("calculated") // calculated, submitted, confirmed
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                     String       @id @default(cuid())
+  tenant_id              String
+  company_id             String
+  employee_id            String?
+  report_id              String?
+  period                 String
+  contributionDate       DateTime
+  emerytalnaEmployer     Float        @default(0)
+  emerytalnaEmployee     Float        @default(0)
+  rentowaEmployer        Float        @default(0)
+  rentowaEmployee        Float        @default(0)
+  chorobowaEmployee      Float        @default(0)
+  wypadkowaEmployer      Float        @default(0)
+  zdrowotnaEmployee      Float        @default(0)
+  zdrowotnaDeductible    Float        @default(0)
+  fpEmployee             Float        @default(0)
+  fgspEmployee           Float        @default(0)
+  basisEmerytalnaRentowa Float        @default(0)
+  basisChorobowa         Float        @default(0)
+  basisZdrowotna         Float        @default(0)
+  basisFPFGSP            Float        @default(0)
+  zusFormType            String?
+  status                 String       @default("calculated")
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  company                Company      @relation(fields: [company_id], references: [id])
+  employee               ZUSEmployee? @relation(fields: [employee_id], references: [id], onDelete: Cascade)
+  report                 ZUSReport?   @relation(fields: [report_id], references: [id], onDelete: Cascade)
 
   @@index([tenant_id])
   @@index([company_id])
@@ -293,758 +312,756 @@ model ZUSContribution {
 }
 
 model ZUSSubmission {
-  id         String   @id @default(cuid())
-  tenant_id  String
-  company_id String
-  company    Company  @relation(fields: [company_id], references: [id])
-  period     String
-  data       Json
-  status     String   @default("draft")
+  id          String    @id @default(cuid())
+  tenant_id   String
+  company_id  String
+  period      String
+  data        Json
+  status      String    @default("draft")
   submittedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  company     Company   @relation(fields: [company_id], references: [id])
 
   @@index([tenant_id])
 }
 
 model TaskQueue {
-   id         String   @id @default(cuid())
-   tenant_id  String
-   type       String   // ksef_submission, pdf_generation, etc.
-   payload    Json
-   status     String   @default("pending") // pending, processing, completed, failed
-   priority   Int      @default(1)
-   retryCount Int      @default(0)
-   nextRetryAt DateTime?
-   createdAt  DateTime @default(now())
-   updatedAt  DateTime @updatedAt
+  id          String    @id @default(cuid())
+  tenant_id   String
+  type        String
+  payload     Json
+  status      String    @default("pending")
+  priority    Int       @default(1)
+  retryCount  Int       @default(0)
+  nextRetryAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-   @@index([tenant_id])
-   @@index([status])
-   @@index([nextRetryAt])
+  @@index([tenant_id])
+  @@index([status])
+  @@index([nextRetryAt])
 }
 
 model VATRegister {
-   id           String   @id @default(cuid())
-   tenant_id    String
-   company_id   String
-   company      Company  @relation(fields: [company_id], references: [id])
-   type         String   // sprzedaz (sales), zakup (purchases)
-   period       String   // YYYY-MM
-   counterpartyName String
-   counterpartyNIP  String?
-   invoiceNumber    String
-   invoiceDate      DateTime
-   netAmount        Float
-   vatAmount        Float
-   vatRate          Float
-   gtuCode          String? // GTU classification code
-   documentType     String? // invoice, correction, etc.
-   createdAt        DateTime @default(now())
-   updatedAt        DateTime @updatedAt
+  id               String   @id @default(cuid())
+  tenant_id        String
+  company_id       String
+  type             String
+  period           String
+  counterpartyName String
+  counterpartyNIP  String?
+  invoiceNumber    String
+  invoiceDate      DateTime
+  netAmount        Float
+  vatAmount        Float
+  vatRate          Float
+  gtuCode          String?
+  documentType     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  company          Company  @relation(fields: [company_id], references: [id])
 
-   @@index([tenant_id])
-   @@index([company_id])
-   @@index([period])
-   @@index([type])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([period])
+  @@index([type])
 }
 
 model TaxCalculation {
-   id              String   @id @default(cuid())
-   tenant_id       String
-   company_id      String
-   company         Company  @relation(fields: [company_id], references: [id])
-   period          String   // YYYY-MM
-   declarationType String   // VAT-7, JPK_V7M, JPK_V7K, PIT, CIT
+  id                 String    @id @default(cuid())
+  tenant_id          String
+  company_id         String
+  period             String
+  declarationType    String
+  totalRevenue       Float     @default(0)
+  vatCollectedSales  Float     @default(0)
+  vatPaidPurchases   Float     @default(0)
+  vatDue             Float     @default(0)
+  totalCosts         Float     @default(0)
+  taxDeductibleCosts Float     @default(0)
+  taxableIncome      Float     @default(0)
+  taxBase            Float     @default(0)
+  taxDue             Float     @default(0)
+  previousAdvance    Float     @default(0)
+  advanceToPay       Float     @default(0)
+  status             String    @default("draft")
+  calculatedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  company            Company   @relation(fields: [company_id], references: [id])
 
-   // Revenue (przychody)
-   totalRevenue         Float @default(0)
-   vatCollectedSales    Float @default(0) // VAT from sales
-   vatPaidPurchases     Float @default(0) // VAT from purchases
-   vatDue               Float @default(0) // VAT to pay/return
-
-   // Costs (koszty)
-   totalCosts           Float @default(0)
-   taxDeductibleCosts   Float @default(0)
-
-   // Income/Loss (dochód/strata)
-   taxableIncome        Float @default(0)
-
-   // Tax calculation (zaliczki)
-   taxBase              Float @default(0)
-   taxDue               Float @default(0)
-   previousAdvance      Float @default(0)
-   advanceToPay         Float @default(0)
-
-   // Status
-   status               String @default("draft") // draft, calculated, verified
-   calculatedAt         DateTime?
-   createdAt            DateTime @default(now())
-   updatedAt            DateTime @updatedAt
-
-   @@index([tenant_id])
-   @@index([company_id])
-   @@index([period])
-   @@index([declarationType])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([period])
+  @@index([declarationType])
 }
 
 model AuditLog {
-    id        String   @id @default(cuid())
-    tenant_id String
-    company_id String?
-    company   Company? @relation(fields: [company_id], references: [id])
-    user_id   String?
-    action    String
-    entity    String
-    entityId  String?
-    details   Json?
-    createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  tenant_id  String
+  company_id String?
+  user_id    String?
+  action     String
+  entity     String
+  entityId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+  company    Company? @relation(fields: [company_id], references: [id])
 
-    @@index([tenant_id])
-    @@index([company_id])
-    @@index([createdAt])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([createdAt])
 }
 
 model NotificationTemplate {
-    id        String   @id @default(cuid())
-    tenant_id String
-    name      String
-    type      String   // deadline, status, reminder, info
-    title     String
-    body      String
-    variables String[] // Array of variable names
-    isActive  Boolean  @default(true)
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id        String   @id @default(cuid())
+  tenant_id String
+  name      String
+  type      String
+  title     String
+  body      String
+  variables String[]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([tenant_id])
-    @@index([type])
+  @@index([tenant_id])
+  @@index([type])
 }
 
 model Notification {
-    id          String   @id @default(cuid())
-    tenant_id   String
-    user_id     String
-    type        String   // deadline, status, reminder, info
-    title       String
-    body        String
-    data        Json?    // Additional data
-    priority    String   @default("normal") // low, normal, high
-    status      String   @default("pending") // pending, sent, delivered, read, failed
-    scheduledFor DateTime?
-    sentAt      DateTime?
-    deliveredAt DateTime?
-    readAt      DateTime?
-    failureReason String?
-    createdAt   DateTime @default(now())
-    updatedAt   DateTime @updatedAt
+  id            String    @id @default(cuid())
+  tenant_id     String
+  user_id       String
+  type          String
+  title         String
+  body          String
+  data          Json?
+  priority      String    @default("normal")
+  status        String    @default("pending")
+  scheduledFor  DateTime?
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  failureReason String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-    @@index([tenant_id])
-    @@index([user_id])
-    @@index([status])
-    @@index([scheduledFor])
+  @@index([tenant_id])
+  @@index([user_id])
+  @@index([status])
+  @@index([scheduledFor])
 }
 
 model DeadlineReminder {
-    id          String   @id @default(cuid())
-    tenant_id   String
-    deadlineId  String   // References the calculated deadline ID
-    user_id     String
-    reminderType String  // upcoming, due, overdue
-    scheduledFor DateTime
-    sent        Boolean  @default(false)
-    sentAt      DateTime?
-    createdAt   DateTime @default(now())
+  id           String    @id @default(cuid())
+  tenant_id    String
+  deadlineId   String
+  user_id      String
+  reminderType String
+  scheduledFor DateTime
+  sent         Boolean   @default(false)
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
 
-    @@index([tenant_id])
-    @@index([user_id])
-    @@index([deadlineId])
-    @@index([scheduledFor])
+  @@index([tenant_id])
+  @@index([user_id])
+  @@index([deadlineId])
+  @@index([scheduledFor])
 }
 
 model DeadlineCompletion {
-    id          String   @id @default(cuid())
-    tenant_id   String
-    deadlineId  String
-    user_id     String
-    completedAt DateTime @default(now())
-    notes       String?
+  id          String   @id @default(cuid())
+  tenant_id   String
+  deadlineId  String
+  user_id     String
+  completedAt DateTime @default(now())
+  notes       String?
 
-    @@index([tenant_id])
-    @@index([deadlineId])
-    @@index([user_id])
+  @@index([tenant_id])
+  @@index([deadlineId])
+  @@index([user_id])
 }
 
 model OfficialCommunication {
-     id              String   @id @default(cuid())
-     tenant_id       String
-     company_id      String
-     type            String   // submission, confirmation, rejection, correction, inquiry
-     entityType      String   // invoice, declaration, zus, tax
-     entityId        String
-     status          String   // sent, delivered, acknowledged, rejected, pending_response
-     direction       String   // outbound, inbound
-     officialBody    String   // urzad_skarbowy, zus, ksef, other
-     referenceNumber String?
-     upoNumber       String?  // Official confirmation number
-     description     String
-     content         Json     // Additional data and metadata
-     responseRequired Boolean @default(false)
-     responseDeadline DateTime?
-     respondedAt     DateTime?
-     createdAt       DateTime @default(now())
-     updatedAt       DateTime @updatedAt
+  id               String    @id @default(cuid())
+  tenant_id        String
+  company_id       String
+  type             String
+  entityType       String
+  entityId         String
+  status           String
+  direction        String
+  officialBody     String
+  referenceNumber  String?
+  upoNumber        String?
+  description      String
+  content          Json
+  responseRequired Boolean   @default(false)
+  responseDeadline DateTime?
+  respondedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-     @@index([tenant_id])
-     @@index([company_id])
-     @@index([entityType])
-     @@index([entityId])
-     @@index([officialBody])
-     @@index([status])
-     @@index([createdAt])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([officialBody])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model DataProcessingRecord {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    dataSubjectId     String
-    dataCategory      String
-    purpose           String
-    legalBasis        String
-    startDate         DateTime
-    endDate           DateTime?
-    status            String   // active, completed, expired, withdrawn
-    consentId         String?
-    withdrawalDate    DateTime?
-    withdrawalReason  String?
-    metadata          Json?
-    additionalData    Json?
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id               String         @id @default(cuid())
+  tenant_id        String
+  dataSubjectId    String
+  dataCategory     String
+  purpose          String
+  legalBasis       String
+  startDate        DateTime
+  endDate          DateTime?
+  status           String
+  consentId        String?
+  withdrawalDate   DateTime?
+  withdrawalReason String?
+  metadata         Json?
+  additionalData   Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  consent          ConsentRecord? @relation(fields: [consentId], references: [id])
 
-    @@index([tenant_id])
-    @@index([dataSubjectId])
-    @@index([status])
+  @@index([tenant_id])
+  @@index([dataSubjectId])
+  @@index([consentId])
+  @@index([status])
 }
 
 model ConsentRecord {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    dataSubjectId     String
-    purposes          String[] // Array of purposes
-    legalBasis        String
-    consentMethod     String   // explicit, implied, opt_out
-    consentText       String
-    consentDate       DateTime
-    ipAddress         String?
-    userAgent         String?
-    location          String?
-    status            String   // active, withdrawn, expired
-    withdrawalDate    DateTime?
-    withdrawalReason  String?
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id                   String            @id @default(cuid())
+  tenant_id            String
+  dataSubjectId        String
+  templateId           String?
+  purposes             String[]
+  legalBasis           String
+  consentMethod        String
+  consentText          String
+  consentDate          DateTime
+  ipAddress            String?
+  userAgent            String?
+  location             String?
+  status               String
+  withdrawalDate       DateTime?
+  withdrawalReason     String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  template             ConsentTemplate?  @relation(fields: [templateId], references: [id])
+  dataProcessingRecords DataProcessingRecord[]
 
-    @@index([tenant_id])
-    @@index([dataSubjectId])
-    @@index([status])
+  @@index([tenant_id])
+  @@index([dataSubjectId])
+  @@index([templateId])
+  @@index([status])
 }
 
 model PrivacyNotice {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    title             String
-    version           String
-    content           String
-    summary           String
-    language          String
-    effectiveDate     DateTime
-    isActive          Boolean  @default(true)
-    noticeType        String   // website, app, service, cookies, marketing
-    targetAudience    String   // all, customers, employees, partners
-    jurisdictions     String[] // ISO country codes
-    createdBy         String
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id             String                 @id @default(cuid())
+  tenant_id      String
+  title          String
+  version        String
+  content        String
+  summary        String
+  language       String
+  effectiveDate  DateTime
+  isActive       Boolean                @default(true)
+  noticeType     String
+  targetAudience String
+  jurisdictions  String[]
+  createdBy      String
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  sections       PrivacyNoticeSection[]
+  views          PrivacyNoticeView[]
 
-    sections          PrivacyNoticeSection[]
-    views             PrivacyNoticeView[]
-
-    @@index([tenant_id])
-    @@index([noticeType])
-    @@index([isActive])
+  @@index([tenant_id])
+  @@index([noticeType])
+  @@index([isActive])
 }
 
 model PrivacyNoticeSection {
-    id                String   @id @default(cuid())
-    noticeId          String
-    notice            PrivacyNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
-    title             String
-    content           String
-    order             Int
-    sectionType       String   // data_collection, data_usage, data_sharing, data_retention, user_rights, contact, cookies, legal_basis
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id          String        @id @default(cuid())
+  noticeId    String
+  title       String
+  content     String
+  order       Int
+  sectionType String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  notice      PrivacyNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
 
-    @@index([noticeId])
+  @@index([noticeId])
 }
 
 model PrivacyNoticeView {
-    id                String   @id @default(cuid())
-    noticeId          String
-    notice            PrivacyNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
-    userId            String?
-    ipAddress         String?
-    userAgent         String?
-    viewedAt          DateTime
-    acceptedAt        DateTime?
-    acceptanceToken   String?
-    createdAt         DateTime @default(now())
+  id              String        @id @default(cuid())
+  noticeId        String
+  userId          String?
+  ipAddress       String?
+  userAgent       String?
+  viewedAt        DateTime
+  acceptedAt      DateTime?
+  acceptanceToken String?
+  createdAt       DateTime      @default(now())
+  notice          PrivacyNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
 
-    @@index([noticeId])
-    @@index([userId])
-    @@index([viewedAt])
+  @@index([noticeId])
+  @@index([userId])
+  @@index([viewedAt])
 }
 
 model SecurityAudit {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    type              String   // vulnerability, configuration, compliance, penetration_test
-    status            String   // pass, fail, warning, error
-    severity          String   // low, medium, high, critical
-    title             String
-    description       String
-    findings          Json?    // Array of findings
-    recommendations   Json?    // Array of recommendations
-    evidence          Json?
-    timestamp         DateTime
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tenant_id       String
+  type            String
+  status          String
+  severity        String
+  title           String
+  description     String
+  findings        Json?
+  recommendations Json?
+  evidence        Json?
+  timestamp       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-    @@index([tenant_id])
-    @@index([type])
-    @@index([status])
-    @@index([timestamp])
+  @@index([tenant_id])
+  @@index([type])
+  @@index([status])
+  @@index([timestamp])
 }
 
 model ComplianceReport {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    overallScore      Float
-    periodStart       DateTime
-    periodEnd         DateTime
-    summary           Json     // Summary statistics
-    trends            Json     // Trend data
-    checks            Json     // Array of compliance checks
-    generatedAt       DateTime
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id           String   @id @default(cuid())
+  tenant_id    String
+  overallScore Float
+  periodStart  DateTime
+  periodEnd    DateTime
+  summary      Json
+  trends       Json
+  checks       Json
+  generatedAt  DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-    @@index([tenant_id])
-    @@index([generatedAt])
+  @@index([tenant_id])
+  @@index([generatedAt])
 }
 
 model AnomalyAlert {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    ruleId            String
-    userId            String?
-    companyId         String?
-    type              String
-    severity          String   // low, medium, high, critical
-    description       String
-    evidence          Json
-    detectedAt        DateTime
-    status            String   // new, investigating, resolved, false_positive
-    resolvedAt        DateTime?
-    resolvedBy        String?
-    notes             String?
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id          String    @id @default(cuid())
+  tenant_id   String
+  ruleId      String
+  userId      String?
+  companyId   String?
+  type        String
+  severity    String
+  description String
+  evidence    Json
+  detectedAt  DateTime
+  status      String
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-    @@index([tenant_id])
-    @@index([ruleId])
-    @@index([userId])
-    @@index([companyId])
-    @@index([status])
-    @@index([detectedAt])
+  @@index([tenant_id])
+  @@index([ruleId])
+  @@index([userId])
+  @@index([companyId])
+  @@index([status])
+  @@index([detectedAt])
 }
 
 model UserBehaviorProfile {
-    userId                    String   @id
-    tenant_id                 String
-    companyId                 String
-    baselineLoginTimes        Json     // Array of numbers (hours)
-    baselineActions           Json     // Record<string, number>
-    baselineDataAccess        Json     // Record<string, number>
-    geographicLocations       Json     // Array of strings
-    deviceFingerprints        Json     // Array of strings
-    riskScore                 Float
-    lastUpdated               DateTime
-    createdAt                 DateTime @default(now())
-    updatedAt                 DateTime @updatedAt
+  userId              String   @id
+  tenant_id           String
+  companyId           String
+  baselineLoginTimes  Json
+  baselineActions     Json
+  baselineDataAccess  Json
+  geographicLocations Json
+  deviceFingerprints  Json
+  riskScore           Float
+  lastUpdated         DateTime
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-    @@index([tenant_id])
-    @@index([companyId])
+  @@index([tenant_id])
+  @@index([companyId])
 }
 
 model ConsentTemplate {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    name              String
-    title             String
-    content           String
-    purposes          String[] // Array of purposes
-    legalBasis        String
-    consentMethod     String   // explicit, implied, opt_out
-    isActive          Boolean  @default(true)
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id            String          @id @default(cuid())
+  tenant_id     String
+  name          String
+  title         String
+  content       String
+  purposes      String[]
+  legalBasis    String
+  consentMethod String
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  consents      ConsentRecord[]
 
-    @@index([tenant_id])
-    @@index([isActive])
+  @@index([tenant_id])
+  @@index([isActive])
 }
 
 model DPIADocument {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    company_id        String
-    company           Company  @relation(fields: [company_id], references: [id])
-    processingActivity String
-    assessor          String
-    assessmentDate    DateTime
-    status            String   // draft, in_progress, completed, approved
-    conclusion        Json?
-    createdBy         String
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id                   String         @id @default(cuid())
+  tenant_id            String
+  company_id           String
+  processingActivity   String
+  assessor             String
+  assessmentDate       DateTime
+  status               String
+  conclusion           Json?
+  createdBy            String
+  reviewerId           String?
+  approverId           String?
+  submittedForReviewAt DateTime?
+  approvedAt           DateTime?
+  approvalNotes        String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  activities           DPIAActivity[]
+  company              Company        @relation(fields: [company_id], references: [id])
+  sections             DPIASection[]
 
-    sections          DPIASection[]
-    activities        DPIAActivity[]
-
-    @@index([tenant_id])
-    @@index([company_id])
-    @@index([status])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([status])
 }
 
 model DPIASection {
-    id                String   @id @default(cuid())
-    documentId        String
-    document          DPIADocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-    sectionName       String
-    content           Json
-    order             Int
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id          String       @id @default(cuid())
+  documentId  String
+  sectionName String
+  content     Json
+  order       Int
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  document    DPIADocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-    @@index([documentId])
+  @@index([documentId])
 }
 
 model DPIAActivity {
-    id                String   @id @default(cuid())
-    documentId        String
-    document          DPIADocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-    activityName      String
-    description       String
-    riskLevel         String   // low, medium, high
-    mitigationSteps   Json?
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id              String       @id @default(cuid())
+  documentId      String
+  activityName    String
+  description     String
+  riskLevel       String
+  mitigationSteps Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  document        DPIADocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-    @@index([documentId])
+  @@index([documentId])
 }
 
 model RiskAssessment {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    documentId        String
-    riskCategory      String
-    riskDescription   String
-    likelihood        String   // low, medium, high
-    impact            String   // low, medium, high
-    riskLevel         String   // low, medium, high, critical
-    mitigationMeasures Json?
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  tenant_id          String
+  documentId         String
+  riskCategory       String
+  riskDescription    String
+  likelihood         String
+  impact             String
+  riskLevel          String
+  mitigationMeasures Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-    @@index([tenant_id])
-    @@index([documentId])
+  @@index([tenant_id])
+  @@index([documentId])
 }
 
 model MitigationMeasure {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    riskId            String
-    measure           String
-    responsible       String
-    deadline          DateTime?
-    status            String   // planned, implemented, effective
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id          String    @id @default(cuid())
+  tenant_id   String
+  riskId      String
+  measure     String
+  responsible String
+  deadline    DateTime?
+  status      String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-    @@index([tenant_id])
-    @@index([riskId])
+  @@index([tenant_id])
+  @@index([riskId])
 }
 
 model ComplianceCheck {
-    id                String   @id @default(cuid())
-    tenant_id         String
-    checkId           String
-    name              String
-    category          String   // gdpr, security, data_protection, audit, consent
-    status            String   // pass, fail, warning, error, not_applicable
-    severity          String   // low, medium, high, critical
-    findings          Json?    // Array of findings
-    recommendations   Json?    // Array of recommendations
-    lastChecked       DateTime
-    nextCheckDue      DateTime
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tenant_id       String
+  checkId         String
+  name            String
+  category        String
+  status          String
+  severity        String
+  findings        Json?
+  recommendations Json?
+  lastChecked     DateTime
+  nextCheckDue    DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-    @@index([tenant_id])
-    @@index([checkId])
-    @@index([category])
-    @@index([status])
+  @@index([tenant_id])
+  @@index([checkId])
+  @@index([category])
+  @@index([status])
 }
 
 model PrivacySettings {
-    dataSubjectId     String   @id
-    tenant_id         String
-    dataSharing       Boolean  @default(false)
-    marketingCommunications Boolean @default(false)
-    analyticsTracking Boolean  @default(false)
-    thirdPartyCookies Boolean  @default(false)
-    dataRetention     Int      @default(365) // days
-    createdAt         DateTime @default(now())
-    updatedAt         DateTime @updatedAt
+  dataSubjectId           String   @id
+  tenant_id               String
+  dataSharing             Boolean  @default(false)
+  marketingCommunications Boolean  @default(false)
+  analyticsTracking       Boolean  @default(false)
+  thirdPartyCookies       Boolean  @default(false)
+  dataRetention           Int      @default(365)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
-    @@index([tenant_id])
+  @@index([tenant_id])
 }
 
 model DataBreachRecord {
-     id                String   @id @default(cuid())
-     tenant_id         String
-     type              String   // confidentiality, integrity, availability
-     severity          String   // low, medium, high, critical
-     description       String
-     affectedDataSubjects Int
-     affectedDataCategories String[]
-     reportedDate      DateTime
-     detectionDate     DateTime
-     containmentDate   DateTime?
-     notificationDate  DateTime?
-     supervisoryAuthorityNotified Boolean @default(false)
-     dataSubjectsNotified Boolean @default(false)
-     mitigationSteps   Json?
-     status            String   // investigating, contained, notified, closed
-     createdAt         DateTime @default(now())
-     updatedAt         DateTime @updatedAt
+  id                           String    @id @default(cuid())
+  tenant_id                    String
+  type                         String
+  severity                     String
+  description                  String
+  affectedDataSubjects         Int
+  affectedDataCategories       String[]
+  reportedDate                 DateTime
+  detectionDate                DateTime
+  containmentDate              DateTime?
+  notificationDate             DateTime?
+  supervisoryAuthorityNotified Boolean   @default(false)
+  dataSubjectsNotified         Boolean   @default(false)
+  mitigationSteps              Json?
+  status                       String
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 
-     @@index([tenant_id])
-     @@index([type])
-     @@index([severity])
-     @@index([reportedDate])
- }
+  @@index([tenant_id])
+  @@index([type])
+  @@index([severity])
+  @@index([reportedDate])
+}
 
 model TaxForm {
-     id                String   @id @default(cuid())
-     name              String   // PIT skalowy, PIT liniowy, Ryczałt, CIT, VAT
-     code              String   @unique // PIT_SCALES, PIT_LINEAR, PIT_LUMP_SUM, CIT, VAT
-     description       String
-     category          String   // income_tax, corporate_tax, value_added_tax
-     isActive          Boolean  @default(true)
-     validFrom         DateTime
-     validTo           DateTime?
-     parameters        Json     // Form-specific parameters (rates, thresholds, etc.)
-     createdAt         DateTime @default(now())
-     updatedAt         DateTime @updatedAt
+  id              String               @id @default(cuid())
+  name            String
+  code            String               @unique
+  description     String
+  category        String
+  isActive        Boolean              @default(true)
+  validFrom       DateTime
+  validTo         DateTime?
+  parameters      Json
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  companySettings CompanyTaxSettings[]
+  rules           TaxRule[]
 
-     rules             TaxRule[]
-     companySettings   CompanyTaxSettings[]
-
-     @@index([category])
-     @@index([isActive])
- }
+  @@index([category])
+  @@index([isActive])
+}
 
 model TaxRule {
-     id                String   @id @default(cuid())
-     taxFormId         String
-     taxForm           TaxForm  @relation(fields: [taxFormId], references: [id], onDelete: Cascade)
-     name              String   // Stawka podstawowa 18%, Stawka 32%, etc.
-     ruleType          String   // rate, threshold, exemption, deduction
-     conditions        Json     // Conditions for when this rule applies
-     calculationMethod String   // percentage, fixed_amount, formula
-     value             Float    // The actual rate or amount
-     minBase           Float?   // Minimum base for this rule to apply
-     maxBase           Float?   // Maximum base for this rule to apply
-     isDefault         Boolean  @default(false)
-     priority          Int      @default(0) // For rules with same conditions
-     isActive          Boolean  @default(true)
-     validFrom         DateTime
-     validTo           DateTime?
-     createdAt         DateTime @default(now())
-     updatedAt         DateTime @updatedAt
+  id                String    @id @default(cuid())
+  taxFormId         String
+  name              String
+  ruleType          String
+  conditions        Json
+  calculationMethod String
+  value             Float
+  minBase           Float?
+  maxBase           Float?
+  isDefault         Boolean   @default(false)
+  priority          Int       @default(0)
+  isActive          Boolean   @default(true)
+  validFrom         DateTime
+  validTo           DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  taxForm           TaxForm   @relation(fields: [taxFormId], references: [id], onDelete: Cascade)
 
-     @@index([taxFormId])
-     @@index([ruleType])
-     @@index([isActive])
- }
+  @@index([taxFormId])
+  @@index([ruleType])
+  @@index([isActive])
+}
 
 model CompanyTaxSettings {
-      id                String   @id @default(cuid())
-      tenant_id         String
-      company_id        String
-      company           Company  @relation(fields: [company_id], references: [id])
-      taxFormId         String
-      taxForm           TaxForm  @relation(fields: [taxFormId], references: [id])
-      isSelected        Boolean  @default(false)
-      settings          Json     // Company-specific settings for this tax form
-      activatedAt       DateTime?
-      deactivatedAt     DateTime?
-      notes             String?
-      createdAt         DateTime @default(now())
-      updatedAt         DateTime @updatedAt
+  id            String    @id @default(cuid())
+  tenant_id     String
+  company_id    String
+  taxFormId     String
+  isSelected    Boolean   @default(false)
+  settings      Json
+  activatedAt   DateTime?
+  deactivatedAt DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  company       Company   @relation(fields: [company_id], references: [id])
+  taxForm       TaxForm   @relation(fields: [taxFormId], references: [id])
 
-      @@unique([tenant_id, company_id, taxFormId])
-      @@index([tenant_id])
-      @@index([company_id])
-      @@index([taxFormId])
-      @@index([isSelected])
-  }
+  @@unique([tenant_id, company_id, taxFormId])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([taxFormId])
+  @@index([isSelected])
+}
 
 model DigitalCertificate {
-      id                String   @id @default(cuid())
-      tenant_id         String
-      company_id        String
-      company           Company  @relation(fields: [company_id], references: [id])
-      certificateType   String   // profil_zaufany, qualified, advanced
-      serialNumber      String
-      issuer            String
-      subject           String
-      validFrom         DateTime
-      validTo           DateTime
-      status            String   @default("active") // active, expired, revoked, suspended
-      certificateData   String   // PEM encoded certificate
-      privateKey        String?  // Encrypted PEM encoded private key
-      keyAlgorithm      String   // RSA, ECDSA
-      keySize           Int      // 2048, 4096, etc.
-      trustedServiceProvider String?
-      userIdentifier    String   // PESEL for individuals, NIP for companies
-      isDefault         Boolean  @default(false)
-      renewalReminderDays Int    @default(30)
-      lastValidationAt  DateTime?
-      validationStatus  String?  // valid, invalid, unknown
-      createdAt         DateTime @default(now())
-      updatedAt         DateTime @updatedAt
+  id                     String            @id @default(cuid())
+  tenant_id              String
+  company_id             String
+  certificateType        String
+  serialNumber           String
+  issuer                 String
+  subject                String
+  validFrom              DateTime
+  validTo                DateTime
+  status                 String            @default("active")
+  certificateData        String
+  privateKey             String?
+  keyAlgorithm           String
+  keySize                Int
+  trustedServiceProvider String?
+  userIdentifier         String
+  isDefault              Boolean           @default(false)
+  renewalReminderDays    Int               @default(30)
+  lastValidationAt       DateTime?
+  validationStatus       String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  company                Company           @relation(fields: [company_id], references: [id])
+  signatureRecords       SignatureRecord[]
 
-      signatureRecords  SignatureRecord[]
-
-      @@index([tenant_id])
-      @@index([company_id])
-      @@index([certificateType])
-      @@index([status])
-      @@index([userIdentifier])
-      @@index([validTo])
-      @@index([isDefault])
-  }
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([certificateType])
+  @@index([status])
+  @@index([userIdentifier])
+  @@index([validTo])
+  @@index([isDefault])
+}
 
 model SignatureRecord {
-      id                String   @id @default(cuid())
-      tenant_id         String
-      company_id        String
-      company           Company  @relation(fields: [company_id], references: [id])
-      certificate_id    String
-      certificate       DigitalCertificate @relation(fields: [certificate_id], references: [id])
-      documentId        String   // ID of the signed document (invoice, declaration, etc.)
-      documentType      String   // invoice, declaration, zus_report, etc.
-      signatureType     String   // profil_zaufany, qes, advanced
-      signatureFormat   String   // xades, pades, cades
-      signatureValue    String   // Base64 encoded signature
-      signedContent     String   // Original document content hash
-      signedDocument    String?  // Signed document (XML, PDF, etc.)
-      timestamp         DateTime?
-      tspProvider       String?  // Time Stamping Authority
-      validationStatus  String   @default("pending") // pending, valid, invalid
-      validationErrors  String?
-      signerName        String
-      signerIdentifier  String   // PESEL or NIP
-      signatureAlgorithm String
-      hashAlgorithm     String
-      isLongTermValid   Boolean  @default(false) // For LTV signatures
-      createdAt         DateTime @default(now())
-      updatedAt         DateTime @updatedAt
+  id                 String             @id @default(cuid())
+  tenant_id          String
+  company_id         String
+  certificate_id     String
+  documentId         String
+  documentType       String
+  signatureType      String
+  signatureFormat    String
+  signatureValue     String
+  signedContent      String
+  signedDocument     String?
+  timestamp          DateTime?
+  tspProvider        String?
+  validationStatus   String             @default("pending")
+  validationErrors   String?
+  signerName         String
+  signerIdentifier   String
+  signatureAlgorithm String
+  hashAlgorithm      String
+  isLongTermValid    Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  certificate        DigitalCertificate @relation(fields: [certificate_id], references: [id])
+  company            Company            @relation(fields: [company_id], references: [id])
 
-      @@index([tenant_id])
-      @@index([company_id])
-      @@index([certificate_id])
-      @@index([documentId])
-      @@index([documentType])
-      @@index([signatureType])
-      @@index([validationStatus])
-      @@index([createdAt])
-  }
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([certificate_id])
+  @@index([documentId])
+  @@index([documentType])
+  @@index([signatureType])
+  @@index([validationStatus])
+  @@index([createdAt])
+}
 
 model ProfilZaufanyProfile {
-      id                String   @id @default(cuid())
-      tenant_id         String
-      company_id        String
-      company           Company  @relation(fields: [company_id], references: [id])
-      profileId         String   @unique
-      userId            String
-      firstName         String
-      lastName          String
-      pesel             String   @unique
-      peselEncrypted    String   // Encrypted PESEL field
-      email             String
-      phoneNumber       String?
-      authenticationLevel String @default("basic") // basic, significant, high
-      accessToken       String?
-      refreshToken      String?
-      tokenExpiresAt    DateTime?
-      lastLoginAt       DateTime?
-      isActive          Boolean  @default(true)
-      createdAt         DateTime @default(now())
-      updatedAt         DateTime @updatedAt
+  id                  String    @id @default(cuid())
+  tenant_id           String
+  company_id          String
+  profileId           String    @unique
+  userId              String
+  firstName           String
+  lastName            String
+  pesel               String    @unique
+  peselEncrypted      String
+  email               String
+  phoneNumber         String?
+  authenticationLevel String    @default("basic")
+  accessToken         String?
+  refreshToken        String?
+  tokenExpiresAt      DateTime?
+  lastLoginAt         DateTime?
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  company             Company   @relation(fields: [company_id], references: [id])
 
-      @@index([tenant_id])
-      @@index([company_id])
-      @@index([pesel])
-      @@index([isActive])
-  }
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([pesel])
+  @@index([isActive])
+}
 
 model EPUAPService {
-       id                String   @id @default(cuid())
-       serviceId         String   @unique
-       name              String
-       description       String
-       category          String   // tax, social_insurance, business_registration
-       isAvailable       Boolean  @default(true)
-       requiredAuthLevel String   @default("basic") // basic, significant, high
-       endpointUrl       String
-       documentationUrl  String?
-       estimatedTime     Int?     // Processing time in minutes
-       createdAt         DateTime @default(now())
-       updatedAt         DateTime @updatedAt
+  id                String   @id @default(cuid())
+  serviceId         String   @unique
+  name              String
+  description       String
+  category          String
+  isAvailable       Boolean  @default(true)
+  requiredAuthLevel String   @default("basic")
+  endpointUrl       String
+  documentationUrl  String?
+  estimatedTime     Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-       @@index([category])
-       @@index([isAvailable])
-       @@index([requiredAuthLevel])
-   }
+  @@index([category])
+  @@index([isAvailable])
+  @@index([requiredAuthLevel])
+}
 
 model Workflow {
-  id            String   @id @default(cuid())
-  tenant_id     String
-  type          String   // invoice_creation, tax_calculation, ksef_submission, customer_onboarding
-  state         String   @default("draft") // draft, pending_validation, validation_failed, pending_approval, approved, processing, completed, failed, cancelled
-  trigger       String   @default("manual") // manual, scheduled, event_based, api_call
-  data          Json     // Workflow-specific data
-  template_id   String?
-  company_id    String?
-  customer_id   String?
-  steps         Json     // Array of workflow steps with their states
-  executions    WorkflowExecution[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String              @id @default(cuid())
+  tenant_id   String
+  type        String
+  state       String              @default("draft")
+  trigger     String              @default("manual")
+  data        Json
+  template_id String?
+  company_id  String?
+  customer_id String?
+  steps       Json
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  executions  WorkflowExecution[]
 
   @@index([tenant_id])
   @@index([type])
@@ -1054,17 +1071,17 @@ model Workflow {
 }
 
 model WorkflowTemplate {
-  id            String   @id @default(cuid())
-  tenant_id     String
-  name          String
-  description   String?
-  type          String   // invoice_creation, tax_calculation, ksef_submission, customer_onboarding
-  steps         Json     // Template steps definition
-  defaultSettings Json?  // Default settings for the template
-  version       String   @default("1.0")
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tenant_id       String
+  name            String
+  description     String?
+  type            String
+  steps           Json
+  defaultSettings Json?
+  version         String   @default("1.0")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([tenant_id])
   @@index([type])
@@ -1072,60 +1089,371 @@ model WorkflowTemplate {
 }
 
 model WorkflowExecution {
-   id            String   @id @default(cuid())
-   tenant_id     String
-   workflow_id   String
-   workflow      Workflow @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
-   step_id       String
-   input_data    Json?
-   output_data   Json?
-   status        String   @default("pending") // pending, running, completed, failed
-   error_message String?
-   started_at    DateTime?
-   completed_at  DateTime?
-   executed_by   String?
-   createdAt     DateTime @default(now())
-   updatedAt     DateTime @updatedAt
+  id            String    @id @default(cuid())
+  tenant_id     String
+  workflow_id   String
+  step_id       String
+  input_data    Json?
+  output_data   Json?
+  status        String    @default("pending")
+  error_message String?
+  started_at    DateTime?
+  completed_at  DateTime?
+  executed_by   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  workflow      Workflow  @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
 
-   @@index([tenant_id])
-   @@index([workflow_id])
-   @@index([step_id])
-   @@index([status])
+  @@index([tenant_id])
+  @@index([workflow_id])
+  @@index([step_id])
+  @@index([status])
 }
 
 model FeatureFlag {
-  id            String   @id @default(cuid())
-  name          String   @unique
-  description   String
-  enabled       Boolean  @default(false)
-  rolloutPercentage Float @default(100)
-  conditions    Json?   // Array of condition objects
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                String   @id @default(cuid())
+  name              String   @unique
+  description       String
+  enabled           Boolean  @default(false)
+  rolloutPercentage Float    @default(100)
+  conditions        Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([name])
   @@index([enabled])
 }
 
 model MobileSyncSession {
-  id            String   @id @default(cuid())
-  tenant_id     String
-  deviceId      String
-  companyId     String
-  sessionType   String   // full_sync, incremental_sync, force_sync
-  status        String   @default("in_progress") // in_progress, completed, failed
-  startedAt     DateTime @default(now())
-  completedAt   DateTime?
+  id                String    @id @default(cuid())
+  tenant_id         String
+  deviceId          String
+  companyId         String
+  sessionType       String
+  status            String    @default("in_progress")
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
   lastSyncTimestamp DateTime?
-  syncedRecords Int      @default(0)
-  failedRecords Int      @default(0)
-  errorMessage  String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  syncedRecords     Int       @default(0)
+  failedRecords     Int       @default(0)
+  errorMessage      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([tenant_id])
   @@index([deviceId])
   @@index([companyId])
   @@index([status])
   @@index([startedAt])
+}
+
+model KPiREntry {
+  id                String        @id @default(cuid())
+  tenant_id         String
+  company_id        String
+
+  lp                Int           // Lp. (kolumna 1)
+  entryDate         DateTime      // Data zdarzenia gosp. (kol. 2)
+  documentNumber    String        // Nr dowodu ksiegowego (kol. 3)
+  counterpartyName  String?       // Nazwa kontrahenta (kol. 4)
+  counterpartyAddress String?     // Adres kontrahenta (kol. 5)
+  description       String        // Opis zdarzenia (kol. 6)
+
+  salesRevenue      Float         @default(0) // Przychod ze sprzedazy (kol. 7)
+  otherRevenue      Float         @default(0) // Pozostale przychody (kol. 8)
+  totalRevenue      Float         @default(0) // Razem przychod (kol. 9 = 7+8)
+
+  purchaseCost      Float         @default(0) // Zakup towarow/materialow (kol. 10)
+  sideExpenses      Float         @default(0) // Koszty uboczne zakupu (kol. 11)
+  salaries          Float         @default(0) // Wynagrodzenia (kol. 12)
+  otherExpenses     Float         @default(0) // Pozostale wydatki (kol. 13)
+  totalExpenses     Float         @default(0) // Razem wydatki (kol. 14 = 10+11+12+13)
+
+  otherColumn       String?       // Wolna kolumna (kol. 15)
+  researchCosts     Float         @default(0) // Koszty B+R (kol. 16)
+  comments          String?       // Uwagi (kol. 17)
+
+  sourceType        String        // INVOICE_SALES, INVOICE_PURCHASE, MANUAL, ZUS_CONTRIBUTION, DEPRECIATION, SALARY, OTHER
+  sourceId          String?       // ID faktury/dokumentu zrodlowego
+  month             Int
+  year              Int
+  isCorrection      Boolean       @default(false)
+  correctedEntryId  String?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  company           Company       @relation(fields: [company_id], references: [id])
+
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([year, month])
+  @@index([sourceType])
+  @@index([sourceId])
+  @@index([entryDate])
+}
+
+model Remanent {
+  id          String   @id @default(cuid())
+  tenant_id   String
+  company_id  String
+  date        DateTime
+  type        String   // OPENING, CLOSING, INTERIM
+  totalValue  Float
+  items       Json     // Pozycje spisu z natury
+  year        Int
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company  @relation(fields: [company_id], references: [id])
+
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([year])
+  @@index([type])
+}
+
+// ============================================================
+// SRODKI TRWALE I AMORTYZACJA
+// ============================================================
+
+model FixedAsset {
+  id                String              @id @default(cuid())
+  tenant_id         String
+  company_id        String
+
+  name              String              // Nazwa srodka trwalego
+  inventoryNumber   String              // Numer inwentarzowy
+  kstCode           String?             // Kod KST (Klasyfikacja Srodkow Trwalych)
+  kstGroup          String?             // Grupa KST (np. "4" = maszyny, "6" = urzadzenia techniczne)
+  description       String?             // Opis dodatkowy
+
+  acquisitionDate   DateTime            // Data nabycia
+  activationDate    DateTime            // Data przyjecia do uzywania
+  deactivationDate  DateTime?           // Data wycofania/likwidacji
+  documentNumber    String?             // Nr dokumentu zakupu (faktura)
+  sourceInvoiceId   String?             // ID faktury zakupu
+
+  initialValue      Float               // Wartosc poczatkowa (brutto lub netto w zaleznosci od VAT)
+  currentValue      Float               // Wartosc biezaca (po amortyzacji)
+  improvementValue  Float               @default(0) // Wartosc ulepszen
+  salvageValue      Float               @default(0) // Wartosc rezydualna
+
+  depreciationMethod String             // LINEAR, DEGRESSIVE, ONE_TIME
+  annualRate         Float              // Roczna stawka amortyzacji (np. 20 = 20%)
+  monthlyRate        Float?             // Miesiezna stawka (obliczana z rocznej)
+  totalDepreciation  Float              @default(0) // Suma dotychczasowej amortyzacji
+  isFullyDepreciated Boolean            @default(false) // Czy w pelni zamortyzowany
+
+  status             String             @default("ACTIVE") // ACTIVE, SOLD, LIQUIDATED, TRANSFERRED
+  category           String?            // Kategoria wlasna uzytkownika
+
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  company            Company            @relation(fields: [company_id], references: [id])
+  depreciationEntries DepreciationEntry[]
+
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([status])
+  @@index([kstCode])
+  @@index([activationDate])
+}
+
+model DepreciationEntry {
+  id              String     @id @default(cuid())
+  tenant_id       String
+  company_id      String
+  asset_id        String
+
+  month           Int        // Miesiac (1-12)
+  year            Int        // Rok
+  amount          Float      // Kwota odpisu amortyzacyjnego
+  cumulativeAmount Float     // Suma amortyzacji narastajaco
+  remainingValue  Float      // Wartosc netto po odpisie
+
+  method          String     // LINEAR, DEGRESSIVE, ONE_TIME
+  rate            Float      // Zastosowana stawka
+  basis           Float      // Podstawa naliczenia (wartosc poczatkowa)
+
+  kpirEntryId     String?    // Powiazanie z wpisem KPiR
+  isBooked        Boolean    @default(false) // Czy zaksiegowano w KPiR
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  asset           FixedAsset @relation(fields: [asset_id], references: [id], onDelete: Cascade)
+  company         Company    @relation(fields: [company_id], references: [id])
+
+  @@unique([asset_id, month, year])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([asset_id])
+  @@index([year, month])
+  @@index([isBooked])
+}
+
+// ============================================================
+// ROZLICZENIE ROCZNE PIT
+// ============================================================
+
+model AnnualTaxReturn {
+  id                  String          @id @default(cuid())
+  tenant_id           String
+  company_id          String
+  user_id             String
+
+  year                Int
+  formType            String          // PIT_36, PIT_36L, PIT_28
+
+  // Dane z JDG (KPiR)
+  businessIncome      Float           @default(0) // Przychod z dzialalnosci
+  businessCosts       Float           @default(0) // Koszty uzyskania
+  businessProfit      Float           @default(0) // Dochod z JDG
+
+  // Dane z etatu (PIT-11)
+  employmentIncome    Float           @default(0) // Przychod z etatu
+  employmentCosts     Float           @default(0) // Koszty uzyskania z etatu
+  employmentProfit    Float           @default(0) // Dochod z etatu
+  employmentTaxPaid   Float           @default(0) // Zaliczki pracodawcy
+
+  // Laczne dane
+  totalIncome         Float           @default(0) // Laczny dochod
+  zusDeduction        Float           @default(0) // Odliczenie skladek ZUS
+  healthDeduction     Float           @default(0) // Odliczenie zdrowotnej
+  otherDeductions     Float           @default(0) // Inne odliczenia od dochodu
+
+  // Obliczenie podatku
+  taxBase             Float           @default(0) // Podstawa opodatkowania
+  taxCalculated       Float           @default(0) // Podatek obliczony
+  taxCredits          Float           @default(0) // Ulgi od podatku (np. na dzieci)
+  taxDue              Float           @default(0) // Podatek nalezny
+  advancesPaid        Float           @default(0) // Zaliczki wplacone (JDG + etat)
+  finalAmount         Float           @default(0) // Do zaplaty (+) lub nadplata (-)
+
+  // Wspolne rozliczenie
+  jointFiling         Boolean         @default(false)
+  spouseIncome        Float?
+  spouseCosts         Float?
+  spouseTaxAdvances   Float?
+  spousePesel         String?
+
+  // Ryczalt (PIT-28)
+  ryczaltRevenue      Float?          // Przychod dla ryczaltu
+  ryczaltRate         Float?          // Stawka ryczaltu
+  ryczaltTax          Float?          // Podatek ryczaltowy
+
+  // Zalaczniki
+  attachments         Json?           // PIT/B, PIT/O, PIT/D dane w JSON
+
+  // Status i submission
+  status              String          @default("DRAFT") // DRAFT, CALCULATING, READY, SUBMITTED, ACCEPTED, REJECTED, CORRECTED
+  submittedAt         DateTime?
+  upoNumber           String?
+  xmlContent          String?
+
+  notes               String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  company             Company         @relation(fields: [company_id], references: [id])
+  deductions          TaxDeduction[]
+
+  @@unique([tenant_id, user_id, year, formType])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([user_id])
+  @@index([year])
+  @@index([formType])
+  @@index([status])
+}
+
+model TaxDeduction {
+  id              String          @id @default(cuid())
+  return_id       String
+  type            String          // CHILD_RELIEF, INTERNET, DONATIONS, IKZE, THERMOMODERNIZATION, REHABILITATION, HEALTH_INSURANCE, BLOOD_DONATION, OTHER
+  category        String          // FROM_INCOME, FROM_TAX
+  description     String
+  amount          Float
+  documentRef     String?         // Nr dokumentu potwierdzajacego
+  childName       String?         // Dla ulgi na dzieci - imie dziecka
+  childPesel      String?         // PESEL dziecka
+  childMonths     Int?            // Liczba miesiecy opieki
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  taxReturn       AnnualTaxReturn @relation(fields: [return_id], references: [id], onDelete: Cascade)
+
+  @@index([return_id])
+  @@index([type])
+  @@index([category])
+}
+
+model EmploymentIncome {
+  id                  String    @id @default(cuid())
+  tenant_id           String
+  company_id          String
+  user_id             String
+
+  year                Int
+  employerName        String    // Nazwa pracodawcy
+  employerNip         String    // NIP pracodawcy
+  employerAddress     String?   // Adres pracodawcy
+
+  // Dane z PIT-11
+  grossIncome         Float     // Przychod brutto
+  taxDeductibleCosts  Float     // Koszty uzyskania przychodu
+  netIncome           Float     // Dochod
+  taxAdvancePaid      Float     // Zaliczka na podatek
+  zusEmerytalnaEmpl   Float     @default(0) // Skladka emerytalna pracownika
+  zusRentowaEmpl      Float     @default(0) // Skladka rentowa pracownika
+  zusChorobowaEmpl    Float     @default(0) // Skladka chorobowa
+  zusHealthEmpl       Float     @default(0) // Skladka zdrowotna
+
+  // Metadane
+  pitFormNumber       String?   // "PIT-11" lub nr korekty
+  sourceMethod        String    @default("MANUAL") // MANUAL, OCR, IMPORT
+  documentUrl         String?   // URL do skanu dokumentu
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  company             Company   @relation(fields: [company_id], references: [id])
+
+  @@unique([tenant_id, user_id, year, employerNip])
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([user_id])
+  @@index([year])
+}
+
+// ============ AI CHAT ============
+
+model ChatConversation {
+  id          String        @id @default(cuid())
+  tenant_id   String
+  company_id  String
+  user_id     String
+  title       String?
+  context     String?       // Kontekst rozmowy: TAX, ZUS, INVOICE, KPiR, GENERAL
+  status      String        @default("ACTIVE") // ACTIVE, ARCHIVED
+  metadata    Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  company     Company       @relation(fields: [company_id], references: [id])
+  messages    ChatMessage[]
+
+  @@index([tenant_id])
+  @@index([company_id])
+  @@index([user_id])
+  @@index([status])
+}
+
+model ChatMessage {
+  id              String           @id @default(cuid())
+  conversationId  String
+  role            String           // USER, ASSISTANT, SYSTEM
+  content         String
+  metadata        Json?            // tokensUsed, model, functionCalls etc.
+  createdAt       DateTime         @default(now())
+  conversation    ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
 }

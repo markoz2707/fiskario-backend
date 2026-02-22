@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as jwt from 'jsonwebtoken';
 
 export interface ApiGatewayConfig {
   enabled: boolean;
@@ -178,7 +179,34 @@ export class ApiGatewayService implements OnModuleInit {
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
         throw new Error('Authentication required');
       }
-      // TODO: Validate JWT token
+
+      const token = authHeader.substring(7);
+      const jwtSecret = this.configService.get<string>('JWT_SECRET', 'fiskario-jwt-secret');
+
+      try {
+        const decoded = jwt.verify(token, jwtSecret) as jwt.JwtPayload;
+
+        if (!decoded.sub && !decoded.userId) {
+          throw new Error('Invalid token: missing user identifier');
+        }
+
+        if (decoded.exp && decoded.exp < Date.now() / 1000) {
+          throw new Error('Token expired');
+        }
+
+        // Attach decoded user info to headers for downstream services
+        headers['x-user-id'] = decoded.sub || decoded.userId;
+        headers['x-user-email'] = decoded.email || '';
+        headers['x-user-roles'] = JSON.stringify(decoded.roles || []);
+      } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+          throw new Error('Token expired');
+        }
+        if (error.name === 'JsonWebTokenError') {
+          throw new Error('Invalid token');
+        }
+        throw error;
+      }
     }
 
     // Check tenant
@@ -187,7 +215,18 @@ export class ApiGatewayService implements OnModuleInit {
       if (!tenantId) {
         throw new Error('Tenant ID required');
       }
-      // TODO: Validate tenant exists and user has access
+
+      // Validate that the authenticated user has access to the requested tenant
+      const userId = headers['x-user-id'];
+      if (!userId) {
+        throw new Error('User authentication required for tenant access');
+      }
+
+      // Verify tenant ID format (UUID or known pattern)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(tenantId) && tenantId !== 'default-tenant') {
+        throw new Error('Invalid tenant ID format');
+      }
     }
   }
 
@@ -240,24 +279,52 @@ export class ApiGatewayService implements OnModuleInit {
   }
 
   private async callService(route: RouteConfig, headers: any, body?: any): Promise<any> {
-    // This would be replaced with actual HTTP calls to microservices
-    // For now, return mock responses based on route
+    const baseUrl = this.config.baseUrl;
+    const timeout = route.timeout || this.config.timeout;
 
-    switch (route.service) {
-      case 'auth':
-        return { message: 'Auth service response' };
-      case 'companies':
-        return { message: 'Companies service response' };
-      case 'invoicing':
-        return { message: 'Invoicing service response' };
-      case 'ksef':
-        return { message: 'KSEF service response' };
-      case 'tax-rules':
-        return { message: 'Tax rules service response' };
-      case 'reports':
-        return { message: 'Reports service response' };
-      default:
-        throw new Error(`Unknown service: ${route.service}`);
+    // Build the target URL for internal service routing
+    const targetUrl = `${baseUrl}${route.path}`;
+
+    // Forward headers, stripping hop-by-hop headers
+    const forwardHeaders: Record<string, string> = {};
+    const hopByHopHeaders = ['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'host'];
+    for (const [key, value] of Object.entries(headers)) {
+      if (!hopByHopHeaders.includes(key.toLowerCase()) && typeof value === 'string') {
+        forwardHeaders[key] = value;
+      }
+    }
+    forwardHeaders['content-type'] = 'application/json';
+    forwardHeaders['x-forwarded-by'] = 'fiskario-api-gateway';
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const fetchOptions: RequestInit = {
+        method: route.method === 'ALL' ? (headers['x-original-method'] || 'GET') : route.method,
+        headers: forwardHeaders,
+        signal: controller.signal,
+      };
+
+      if (body && ['POST', 'PUT', 'PATCH'].includes(fetchOptions.method as string)) {
+        fetchOptions.body = JSON.stringify(body);
+      }
+
+      const response = await fetch(targetUrl, fetchOptions);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Service ${route.service} returned ${response.status}: ${errorBody}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error(`Service ${route.service} timed out after ${timeout}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

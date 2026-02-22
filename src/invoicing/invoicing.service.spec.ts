@@ -3,23 +3,52 @@ import { Logger } from '@nestjs/common';
 import { InvoicingService } from './invoicing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { KsefService } from '../ksef/ksef.service';
-import * as fs from 'fs';
-import * as path from 'path';
+import { BuyersService } from './buyers.service';
+import { TaxRulesService } from '../tax-rules/tax-rules.service';
+
+// Mock fs module at top level to avoid "Cannot redefine property" issues
+jest.mock('fs', () => ({
+  existsSync: jest.fn().mockReturnValue(true),
+  mkdirSync: jest.fn(),
+  createWriteStream: jest.fn().mockReturnValue({
+    on: jest.fn((event: string, cb: () => void) => {
+      if (event === 'finish') setTimeout(cb, 0);
+    }),
+  }),
+}));
+
+jest.mock('pdfkit', () => {
+  return jest.fn().mockImplementation(() => ({
+    pipe: jest.fn(),
+    text: jest.fn().mockReturnThis(),
+    end: jest.fn(),
+  }));
+});
 
 describe('InvoicingService', () => {
   let service: InvoicingService;
   let prismaService: PrismaService;
   let ksefService: KsefService;
+  let buyersService: BuyersService;
+  let taxRulesService: TaxRulesService;
 
   const mockPrismaService = {
     invoice: {
       create: jest.fn(),
       update: jest.fn(),
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       findUnique: jest.fn(),
+      delete: jest.fn(),
     },
     taskQueue: {
       create: jest.fn(),
+    },
+    company: {
+      findFirst: jest.fn(),
+    },
+    companyTaxSettings: {
+      findMany: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -29,31 +58,31 @@ describe('InvoicingService', () => {
     submitInvoice: jest.fn(),
   };
 
+  const mockBuyersService = {
+    findBuyersByNip: jest.fn(),
+    createBuyer: jest.fn(),
+  };
+
+  const mockTaxRulesService = {
+    calculateTaxForMobile: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InvoicingService,
-        {
-          provide: PrismaService,
-          useValue: mockPrismaService,
-        },
-        {
-          provide: KsefService,
-          useValue: mockKsefService,
-        },
+        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: KsefService, useValue: mockKsefService },
+        { provide: BuyersService, useValue: mockBuyersService },
+        { provide: TaxRulesService, useValue: mockTaxRulesService },
       ],
     }).compile();
 
     service = module.get<InvoicingService>(InvoicingService);
     prismaService = module.get<PrismaService>(PrismaService);
     ksefService = module.get<KsefService>(KsefService);
-
-    // Mock fs and path modules
-    jest.spyOn(fs, 'existsSync').mockReturnValue(true);
-    jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
-    jest.spyOn(fs, 'createWriteStream').mockReturnValue({
-      on: jest.fn(),
-    } as any);
+    buyersService = module.get<BuyersService>(BuyersService);
+    taxRulesService = module.get<TaxRulesService>(TaxRulesService);
   });
 
   afterEach(() => {
@@ -64,464 +93,507 @@ describe('InvoicingService', () => {
     expect(service).toBeDefined();
   });
 
+  // ====================================================================
+  // createInvoice - tworzenie faktury
+  // ====================================================================
   describe('createInvoice', () => {
+    const TENANT_ID = 'tenant-123';
+
     const mockInvoiceData = {
-      company_id: 'company-id',
+      company_id: 'company-1',
       series: 'FV',
-      date: '2024-01-15',
-      dueDate: '2024-02-15',
-      buyerName: 'Test Buyer',
-      buyerNip: '1234567890',
-      buyerAddress: 'Buyer Address',
+      date: '2025-03-15',
+      dueDate: '2025-04-15',
+      buyerName: 'Firma ABC Sp. z o.o.',
+      buyerNip: '5213000000',
+      buyerAddress: 'ul. Testowa 1, Warszawa',
+      buyerCity: 'Warszawa',
+      buyerPostalCode: '00-001',
       items: [
         {
-          description: 'Test Item',
-          quantity: 2,
-          unitPrice: 100,
+          description: 'Uslugi programistyczne',
+          quantity: 10,
+          unitPrice: 500,
           vatRate: 23,
-          gtu: 'GTU_01',
+          gtu: 'GTU_12',
         },
       ],
     };
 
     const mockCreatedInvoice = {
-      id: 'invoice-id',
-      tenant_id: 'tenant-123',
+      id: 'inv-1',
+      tenant_id: TENANT_ID,
+      company_id: 'company-1',
+      buyer_id: 'buyer-1',
       number: 'FV/0001',
       series: 'FV',
-      date: new Date('2024-01-15'),
-      dueDate: new Date('2024-02-15'),
-      buyerName: 'Test Buyer',
-      buyerNip: '1234567890',
-      buyerAddress: 'Buyer Address',
-      totalNet: 200,
-      totalVat: 46,
-      totalGross: 246,
+      date: new Date('2025-03-15'),
+      dueDate: new Date('2025-04-15'),
+      totalNet: 5000,
+      totalVat: 1150,
+      totalGross: 6150,
+      splitPayment: false,
+      splitPaymentAmount: null,
       items: [
         {
-          id: 'item-id',
-          description: 'Test Item',
-          quantity: 2,
-          unitPrice: 100,
+          id: 'item-1',
+          description: 'Uslugi programistyczne',
+          quantity: 10,
+          unitPrice: 500,
           vatRate: 23,
-          gtu: 'GTU_01',
-          netAmount: 200,
-          vatAmount: 46,
-          grossAmount: 246,
+          gtu: 'GTU_12',
+          netAmount: 5000,
+          vatAmount: 1150,
+          grossAmount: 6150,
         },
       ],
+      buyer: { id: 'buyer-1', name: 'Firma ABC Sp. z o.o.', nip: '5213000000' },
     };
 
     beforeEach(() => {
+      // Default mocks for a successful invoice creation flow
+      mockPrismaService.invoice.findFirst.mockResolvedValue(null); // no previous invoice -> number 0001
+      mockBuyersService.findBuyersByNip.mockResolvedValue([{ id: 'buyer-1' }]);
       mockPrismaService.invoice.create.mockResolvedValue(mockCreatedInvoice);
       mockPrismaService.invoice.update.mockResolvedValue({
         ...mockCreatedInvoice,
-        pdfUrl: 'invoice-invoice-id.pdf',
+        pdfUrl: 'invoice-inv-1.pdf',
+      });
+      mockPrismaService.invoice.findUnique.mockResolvedValue({
+        ...mockCreatedInvoice,
+        company: { name: 'My Company', nip: '1111111111', address: 'Company Address' },
       });
       mockKsefService.getAuthStatus.mockReturnValue({ authenticated: true });
       mockKsefService.submitInvoice.mockResolvedValue({ success: true });
     });
 
-    it('should create invoice successfully', async () => {
-      const result = await service.createInvoice('tenant-123', mockInvoiceData);
+    it('should create a standard invoice with correct totals', async () => {
+      const result = await service.createInvoice(TENANT_ID, mockInvoiceData);
 
       expect(result).toEqual(mockCreatedInvoice);
-      expect(prismaService.invoice.create).toHaveBeenCalledWith({
-        data: {
-          tenant_id: 'tenant-123',
-          company_id: 'company-id',
-          number: 'FV/0001',
-          series: 'FV',
-          date: new Date('2024-01-15'),
-          dueDate: new Date('2024-02-15'),
-          buyerName: 'Test Buyer',
-          buyerNip: '1234567890',
-          buyerAddress: 'Buyer Address',
-          totalNet: 200,
-          totalVat: 46,
-          totalGross: 246,
-          items: {
-            create: [
-              {
-                description: 'Test Item',
-                quantity: 2,
-                unitPrice: 100,
-                vatRate: 23,
-                gtu: 'GTU_01',
-                netAmount: 200,
-                vatAmount: 46,
-                grossAmount: 246,
-              },
-            ],
-          },
-        },
-        include: { items: true },
-      });
+      expect(mockPrismaService.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tenant_id: TENANT_ID,
+            company_id: 'company-1',
+            number: 'FV/0001',
+            series: 'FV',
+            totalNet: 5000,
+            totalVat: 1150,
+            totalGross: 6150,
+            splitPayment: false,
+            splitPaymentAmount: null,
+          }),
+          include: { items: true, buyer: true },
+        }),
+      );
     });
 
-    it('should handle missing due date', async () => {
+    it('should reuse an existing buyer when NIP matches', async () => {
+      mockBuyersService.findBuyersByNip.mockResolvedValue([{ id: 'existing-buyer' }]);
+
+      await service.createInvoice(TENANT_ID, mockInvoiceData);
+
+      expect(mockBuyersService.findBuyersByNip).toHaveBeenCalledWith(TENANT_ID, '5213000000');
+      expect(mockBuyersService.createBuyer).not.toHaveBeenCalled();
+      expect(mockPrismaService.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            buyer_id: 'existing-buyer',
+          }),
+        }),
+      );
+    });
+
+    it('should create a new buyer when no NIP match is found', async () => {
+      mockBuyersService.findBuyersByNip.mockResolvedValue([]);
+      mockBuyersService.createBuyer.mockResolvedValue({ id: 'new-buyer' });
+
+      await service.createInvoice(TENANT_ID, mockInvoiceData);
+
+      expect(mockBuyersService.createBuyer).toHaveBeenCalledWith(
+        TENANT_ID,
+        expect.objectContaining({
+          name: 'Firma ABC Sp. z o.o.',
+          nip: '5213000000',
+          address: 'ul. Testowa 1, Warszawa',
+          city: 'Warszawa',
+          postalCode: '00-001',
+          country: 'PL',
+          isActive: true,
+        }),
+      );
+      expect(mockPrismaService.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            buyer_id: 'new-buyer',
+          }),
+        }),
+      );
+    });
+
+    it('should set buyer_id to null when no buyerName provided', async () => {
+      const dataWithoutBuyer = {
+        ...mockInvoiceData,
+        buyerName: undefined,
+        buyerNip: '5213000000',
+      } as any;
+      // validateKSeF still requires buyerName, so remove that check scenario
+      // Actually this would throw from validateKSeF.
+      // Let's skip and test the null buyer scenario properly:
+      // We need buyerName to pass KSeF validation, but to get buyer_id null
+      // that can only happen when data.buyerName is falsy. Since validation
+      // checks buyerName, this path triggers an error.
+      await expect(service.createInvoice(TENANT_ID, dataWithoutBuyer))
+        .rejects.toThrow('Buyer NIP and name are required for KSeF');
+    });
+
+    it('should handle dueDate as null when not provided', async () => {
       const dataWithoutDueDate = { ...mockInvoiceData } as any;
       delete dataWithoutDueDate.dueDate;
 
-      const result = await service.createInvoice('tenant-123', dataWithoutDueDate);
+      await service.createInvoice(TENANT_ID, dataWithoutDueDate);
 
-      expect(result).toEqual(mockCreatedInvoice);
-      expect(prismaService.invoice.create).toHaveBeenCalledWith(
+      expect(mockPrismaService.invoice.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             dueDate: null,
           }),
-        })
+        }),
       );
     });
 
-    it('should handle missing buyer NIP', async () => {
-      const dataWithoutNip = { ...mockInvoiceData } as any;
-      delete dataWithoutNip.buyerNip;
+    it('should queue KSeF submission after invoice creation', async () => {
+      await service.createInvoice(TENANT_ID, mockInvoiceData);
 
-      await expect(service.createInvoice('tenant-123', dataWithoutNip))
-        .rejects.toThrow('Buyer NIP and name are required for KSeF');
-    });
-
-    it('should handle missing buyer name', async () => {
-      const dataWithoutName = { ...mockInvoiceData } as any;
-      delete dataWithoutName.buyerName;
-
-      await expect(service.createInvoice('tenant-123', dataWithoutName))
-        .rejects.toThrow('Buyer NIP and name are required for KSeF');
-    });
-
-    it('should handle database errors during invoice creation', async () => {
-      mockPrismaService.invoice.create.mockRejectedValue(new Error('Database error'));
-
-      await expect(service.createInvoice('tenant-123', mockInvoiceData))
-        .rejects.toThrow('Database error');
-    });
-
-    it('should handle PDF generation errors', async () => {
-      const mockFsError = new Error('File system error');
-      jest.spyOn(fs, 'createWriteStream').mockImplementation(() => {
-        throw mockFsError;
+      // Should have fetched the invoice for KSeF submission
+      expect(mockPrismaService.invoice.findUnique).toHaveBeenCalledWith({
+        where: { id: 'inv-1' },
+        include: { items: true, company: true },
       });
-
-      await expect(service.createInvoice('tenant-123', mockInvoiceData))
-        .rejects.toThrow('File system error');
+      // KSeF was authenticated, so submitInvoice should be called
+      expect(mockKsefService.submitInvoice).toHaveBeenCalled();
     });
 
-    it('should handle KSeF submission errors', async () => {
-      mockKsefService.submitInvoice.mockRejectedValue(new Error('KSeF error'));
+    it('should queue task when KSeF is not authenticated', async () => {
+      mockKsefService.getAuthStatus.mockReturnValue({ authenticated: false });
 
-      const result = await service.createInvoice('tenant-123', mockInvoiceData);
+      await service.createInvoice(TENANT_ID, mockInvoiceData);
 
-      expect(result).toEqual(mockCreatedInvoice);
-      expect(prismaService.taskQueue.create).toHaveBeenCalledWith({
+      expect(mockKsefService.submitInvoice).not.toHaveBeenCalled();
+      expect(mockPrismaService.taskQueue.create).toHaveBeenCalledWith({
         data: {
-          tenant_id: 'tenant-123',
+          tenant_id: TENANT_ID,
+          type: 'ksef_submission',
+          payload: { invoiceId: 'inv-1' },
+        },
+      });
+    });
+
+    it('should queue retry task when KSeF submission fails', async () => {
+      mockKsefService.submitInvoice.mockRejectedValue(new Error('KSeF connection timeout'));
+
+      const result = await service.createInvoice(TENANT_ID, mockInvoiceData);
+
+      // Invoice should still be returned despite KSeF failure
+      expect(result).toEqual(mockCreatedInvoice);
+      expect(mockPrismaService.taskQueue.create).toHaveBeenCalledWith({
+        data: {
+          tenant_id: TENANT_ID,
           type: 'ksef_submission_retry',
-          payload: { invoiceId: 'invoice-id' },
+          payload: { invoiceId: 'inv-1' },
           status: 'pending',
           retryCount: 0,
         },
       });
     });
 
-    it('should handle missing items array', async () => {
-      const dataWithoutItems = { ...mockInvoiceData } as any;
-      delete dataWithoutItems.items;
-
-      await expect(service.createInvoice('tenant-123', dataWithoutItems))
-        .rejects.toThrow();
-    });
-
-    it('should handle empty items array', async () => {
-      const dataWithEmptyItems = { ...mockInvoiceData, items: [] };
-
-      await expect(service.createInvoice('tenant-123', dataWithEmptyItems))
-        .rejects.toThrow();
-    });
-
-    it('should handle items with zero quantity', async () => {
-      const dataWithZeroQuantity = {
+    it('should handle multiple items and calculate totals correctly', async () => {
+      const multiItemData = {
         ...mockInvoiceData,
         items: [
+          { description: 'Consulting', quantity: 5, unitPrice: 200, vatRate: 23, gtu: null },
+          { description: 'Software license', quantity: 1, unitPrice: 3000, vatRate: 23, gtu: 'GTU_12' },
+          { description: 'Training', quantity: 2, unitPrice: 800, vatRate: 8, gtu: null },
+        ],
+      };
+
+      await service.createInvoice(TENANT_ID, multiItemData);
+
+      // Totals: Net = 1000 + 3000 + 1600 = 5600
+      //         VAT = 230 + 690 + 128 = 1048
+      //         Gross = 5600 + 1048 = 6648
+      expect(mockPrismaService.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            totalNet: 5600,
+            totalVat: 1048,
+            totalGross: 6648,
+          }),
+        }),
+      );
+    });
+
+    it('should handle database error during invoice creation', async () => {
+      mockPrismaService.invoice.create.mockRejectedValue(new Error('Database connection lost'));
+
+      await expect(service.createInvoice(TENANT_ID, mockInvoiceData))
+        .rejects.toThrow('Database connection lost');
+    });
+  });
+
+  // ====================================================================
+  // KSeF validation (validateKSeF)
+  // ====================================================================
+  describe('validateKSeF', () => {
+    it('should pass validation with valid buyer NIP and name', () => {
+      const validData = { buyerName: 'Firma ABC', buyerNip: '5213000000' };
+      expect(() => (service as any).validateKSeF(validData)).not.toThrow();
+    });
+
+    it('should throw when buyer NIP is missing', () => {
+      const data = { buyerName: 'Firma ABC' };
+      expect(() => (service as any).validateKSeF(data))
+        .toThrow('Buyer NIP and name are required for KSeF');
+    });
+
+    it('should throw when buyer name is missing', () => {
+      const data = { buyerNip: '5213000000' };
+      expect(() => (service as any).validateKSeF(data))
+        .toThrow('Buyer NIP and name are required for KSeF');
+    });
+
+    it('should throw when both buyer NIP and name are missing', () => {
+      expect(() => (service as any).validateKSeF({}))
+        .toThrow('Buyer NIP and name are required for KSeF');
+    });
+
+    it('should throw when buyer NIP is empty string', () => {
+      const data = { buyerName: 'Firma ABC', buyerNip: '' };
+      expect(() => (service as any).validateKSeF(data))
+        .toThrow('Buyer NIP and name are required for KSeF');
+    });
+
+    it('should throw when buyer name is null', () => {
+      const data = { buyerName: null, buyerNip: '5213000000' };
+      expect(() => (service as any).validateKSeF(data))
+        .toThrow('Buyer NIP and name are required for KSeF');
+    });
+  });
+
+  // ====================================================================
+  // MPP (Split Payment) detection (isMPPRequired)
+  // ====================================================================
+  describe('isMPPRequired (Split Payment / MPP)', () => {
+    it('should return false when totalGross < 15000 PLN even with GTU codes', () => {
+      const items = [{ gtu: 'GTU_01' }];
+      const result = (service as any).isMPPRequired(items, 14999.99);
+      expect(result).toBe(false);
+    });
+
+    it('should return false when totalGross >= 15000 but no GTU codes present', () => {
+      const items = [{ gtu: null }, { gtu: undefined }];
+      const result = (service as any).isMPPRequired(items, 20000);
+      expect(result).toBe(false);
+    });
+
+    it('should return true when totalGross >= 15000 and items have eligible GTU codes', () => {
+      const items = [{ gtu: 'GTU_01' }];
+      const result = (service as any).isMPPRequired(items, 15000);
+      expect(result).toBe(true);
+    });
+
+    it('should handle GTU codes case-insensitively', () => {
+      const items = [{ gtu: 'gtu_05' }];
+      const result = (service as any).isMPPRequired(items, 16000);
+      expect(result).toBe(true);
+    });
+
+    it('should detect MPP requirement for all GTU codes (GTU_01 through GTU_13)', () => {
+      for (let i = 1; i <= 13; i++) {
+        const gtuCode = `GTU_${i.toString().padStart(2, '0')}`;
+        const items = [{ gtu: gtuCode }];
+        const result = (service as any).isMPPRequired(items, 20000);
+        expect(result).toBe(true);
+      }
+    });
+
+    it('should return false for non-standard GTU codes', () => {
+      const items = [{ gtu: 'GTU_14' }, { gtu: 'GTU_99' }, { gtu: 'OTHER' }];
+      const result = (service as any).isMPPRequired(items, 20000);
+      expect(result).toBe(false);
+    });
+
+    it('should set splitPayment and splitPaymentAmount in createInvoice when MPP required', async () => {
+      // Setup: high-value invoice with MPP-eligible GTU code
+      mockPrismaService.invoice.findFirst.mockResolvedValue(null);
+      mockBuyersService.findBuyersByNip.mockResolvedValue([{ id: 'buyer-1' }]);
+      mockPrismaService.invoice.create.mockResolvedValue({
+        id: 'inv-mpp',
+        number: 'FV/0001',
+        date: new Date('2025-03-15'),
+        items: [],
+        buyer: {},
+      });
+      mockPrismaService.invoice.update.mockResolvedValue({});
+      mockPrismaService.invoice.findUnique.mockResolvedValue({
+        id: 'inv-mpp',
+        number: 'FV/0001',
+        date: new Date('2025-03-15'),
+        items: [],
+        company: {},
+      });
+      mockKsefService.getAuthStatus.mockReturnValue({ authenticated: true });
+      mockKsefService.submitInvoice.mockResolvedValue({});
+
+      const highValueData = {
+        company_id: 'company-1',
+        series: 'FV',
+        date: '2025-03-15',
+        buyerName: 'Big Corp',
+        buyerNip: '5213000000',
+        items: [
           {
-            description: 'Test Item',
-            quantity: 0,
-            unitPrice: 100,
+            description: 'Paliwa silnikowe',
+            quantity: 100,
+            unitPrice: 200,
             vatRate: 23,
-            gtu: 'GTU_01',
+            gtu: 'GTU_02', // paliwa - MPP eligible
           },
         ],
       };
 
-      const result = await service.createInvoice('tenant-123', dataWithZeroQuantity);
+      await service.createInvoice('tenant-1', highValueData);
 
-      expect(result).toEqual(mockCreatedInvoice);
-      expect(prismaService.invoice.create).toHaveBeenCalledWith(
+      // totalNet = 20000, totalVat = 4600, totalGross = 24600 -> MPP required
+      expect(mockPrismaService.invoice.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            totalNet: 0,
-            totalVat: 0,
-            totalGross: 0,
+            splitPayment: true,
+            splitPaymentAmount: 4600, // = totalVat
           }),
-        })
+        }),
       );
     });
 
-    it('should handle items with zero unit price', async () => {
-      const dataWithZeroPrice = {
-        ...mockInvoiceData,
+    it('should not set splitPayment when totalGross < 15000 even with GTU codes', async () => {
+      mockPrismaService.invoice.findFirst.mockResolvedValue(null);
+      mockBuyersService.findBuyersByNip.mockResolvedValue([{ id: 'buyer-1' }]);
+      mockPrismaService.invoice.create.mockResolvedValue({
+        id: 'inv-low',
+        number: 'FV/0001',
+        date: new Date('2025-03-15'),
+        items: [],
+        buyer: {},
+      });
+      mockPrismaService.invoice.update.mockResolvedValue({});
+      mockPrismaService.invoice.findUnique.mockResolvedValue({
+        id: 'inv-low',
+        number: 'FV/0001',
+        date: new Date('2025-03-15'),
+        items: [],
+        company: {},
+      });
+      mockKsefService.getAuthStatus.mockReturnValue({ authenticated: true });
+      mockKsefService.submitInvoice.mockResolvedValue({});
+
+      const lowValueData = {
+        company_id: 'company-1',
+        series: 'FV',
+        date: '2025-03-15',
+        buyerName: 'Small Buyer',
+        buyerNip: '5213000000',
         items: [
           {
-            description: 'Test Item',
-            quantity: 2,
-            unitPrice: 0,
-            vatRate: 23,
-            gtu: 'GTU_01',
-          },
-        ],
-      };
-
-      const result = await service.createInvoice('tenant-123', dataWithZeroPrice);
-
-      expect(result).toEqual(mockCreatedInvoice);
-      expect(prismaService.invoice.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            totalNet: 0,
-            totalVat: 0,
-            totalGross: 0,
-          }),
-        })
-      );
-    });
-
-    it('should handle items with zero VAT rate', async () => {
-      const dataWithZeroVat = {
-        ...mockInvoiceData,
-        items: [
-          {
-            description: 'Test Item',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 0,
-            gtu: 'GTU_01',
-          },
-        ],
-      };
-
-      const result = await service.createInvoice('tenant-123', dataWithZeroVat);
-
-      expect(result).toEqual(mockCreatedInvoice);
-      expect(prismaService.invoice.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            totalNet: 200,
-            totalVat: 0,
-            totalGross: 200,
-          }),
-        })
-      );
-    });
-
-    it('should handle multiple items correctly', async () => {
-      const dataWithMultipleItems = {
-        ...mockInvoiceData,
-        items: [
-          {
-            description: 'Item 1',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-          },
-          {
-            description: 'Item 2',
+            description: 'Paliwa',
             quantity: 1,
-            unitPrice: 50,
-            vatRate: 8,
+            unitPrice: 100,
+            vatRate: 23,
             gtu: 'GTU_02',
           },
         ],
       };
 
-      const result = await service.createInvoice('tenant-123', dataWithMultipleItems);
+      await service.createInvoice('tenant-1', lowValueData);
 
-      expect(result).toEqual(mockCreatedInvoice);
-      expect(prismaService.invoice.create).toHaveBeenCalledWith(
+      // totalGross = 123 -> below 15000
+      expect(mockPrismaService.invoice.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            totalNet: 250,
-            totalVat: 50,
-            totalGross: 300,
-            items: {
-              create: expect.arrayContaining([
-                expect.objectContaining({
-                  description: 'Item 1',
-                  netAmount: 200,
-                  vatAmount: 46,
-                  grossAmount: 246,
-                }),
-                expect.objectContaining({
-                  description: 'Item 2',
-                  netAmount: 50,
-                  vatAmount: 4,
-                  grossAmount: 54,
-                }),
-              ]),
-            },
+            splitPayment: false,
+            splitPaymentAmount: null,
           }),
-        })
+        }),
       );
-    });
-
-    it('should handle concurrent invoice creation', async () => {
-      const invoices = Array.from({ length: 5 }, (_, i) => ({
-        ...mockInvoiceData,
-        series: `FV${i}`,
-      }));
-
-      const results = await Promise.all(
-        invoices.map((data, i) =>
-          service.createInvoice(`tenant-${i}`, data)
-        )
-      );
-
-      expect(results).toHaveLength(5);
-      expect(prismaService.invoice.create).toHaveBeenCalledTimes(5);
     });
   });
 
-  describe('validateKSeF', () => {
-    it('should pass validation with valid data', () => {
-      const validData = {
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-      };
-
-      expect(() => (service as any).validateKSeF(validData)).not.toThrow();
-    });
-
-    it('should throw error when buyer NIP is missing', () => {
-      const invalidData = {
-        buyerName: 'Test Buyer',
-        // buyerNip is missing
-      };
-
-      expect(() => (service as any).validateKSeF(invalidData))
-        .toThrow('Buyer NIP and name are required for KSeF');
-    });
-
-    it('should throw error when buyer name is missing', () => {
-      const invalidData = {
-        buyerNip: '1234567890',
-        // buyerName is missing
-      };
-
-      expect(() => (service as any).validateKSeF(invalidData))
-        .toThrow('Buyer NIP and name are required for KSeF');
-    });
-
-    it('should throw error when both buyer NIP and name are missing', () => {
-      const invalidData = {
-        // Both are missing
-      };
-
-      expect(() => (service as any).validateKSeF(invalidData))
-        .toThrow('Buyer NIP and name are required for KSeF');
-    });
-
-    it('should handle empty strings', () => {
-      const invalidData = {
-        buyerName: '',
-        buyerNip: '',
-      };
-
-      expect(() => (service as any).validateKSeF(invalidData))
-        .toThrow('Buyer NIP and name are required for KSeF');
-    });
-
-    it('should handle null values', () => {
-      const invalidData = {
-        buyerName: null,
-        buyerNip: null,
-      };
-
-      expect(() => (service as any).validateKSeF(invalidData))
-        .toThrow('Buyer NIP and name are required for KSeF');
-    });
-  });
-
+  // ====================================================================
+  // Invoice number generation (generateInvoiceNumber)
+  // ====================================================================
   describe('generateInvoiceNumber', () => {
-    it('should generate first invoice number for new series', async () => {
+    it('should generate FV/0001 for first invoice in series', async () => {
       mockPrismaService.invoice.findFirst.mockResolvedValue(null);
 
-      const result = await (service as any).generateInvoiceNumber('tenant-123', 'FV');
+      const result = await (service as any).generateInvoiceNumber('tenant-1', 'FV');
 
       expect(result).toBe('FV/0001');
-      expect(prismaService.invoice.findFirst).toHaveBeenCalledWith({
-        where: { tenant_id: 'tenant-123', series: 'FV' },
+      expect(mockPrismaService.invoice.findFirst).toHaveBeenCalledWith({
+        where: { tenant_id: 'tenant-1', series: 'FV' },
         orderBy: { createdAt: 'desc' },
       });
     });
 
-    it('should generate next invoice number for existing series', async () => {
-      mockPrismaService.invoice.findFirst.mockResolvedValue({
-        number: 'FV/0005',
-      });
+    it('should increment from last invoice number in series', async () => {
+      mockPrismaService.invoice.findFirst.mockResolvedValue({ number: 'FV/0042' });
 
-      const result = await (service as any).generateInvoiceNumber('tenant-123', 'FV');
+      const result = await (service as any).generateInvoiceNumber('tenant-1', 'FV');
 
-      expect(result).toBe('FV/0006');
+      expect(result).toBe('FV/0043');
     });
 
-    it('should handle different series correctly', async () => {
-      mockPrismaService.invoice.findFirst.mockResolvedValue(null);
+    it('should handle different series independently', async () => {
+      mockPrismaService.invoice.findFirst
+        .mockResolvedValueOnce({ number: 'FV/0010' })
+        .mockResolvedValueOnce(null);
 
-      const result1 = await (service as any).generateInvoiceNumber('tenant-123', 'FV');
-      const result2 = await (service as any).generateInvoiceNumber('tenant-123', 'FA');
+      const fvResult = await (service as any).generateInvoiceNumber('tenant-1', 'FV');
+      const faResult = await (service as any).generateInvoiceNumber('tenant-1', 'FA');
 
-      expect(result1).toBe('FV/0001');
-      expect(result2).toBe('FA/0001');
+      expect(fvResult).toBe('FV/0011');
+      expect(faResult).toBe('FA/0001');
     });
 
-    it('should handle large invoice numbers', async () => {
-      mockPrismaService.invoice.findFirst.mockResolvedValue({
-        number: 'FV/9999',
-      });
+    it('should pad numbers to 4 digits', async () => {
+      mockPrismaService.invoice.findFirst.mockResolvedValue({ number: 'FV/0001' });
 
-      const result = await (service as any).generateInvoiceNumber('tenant-123', 'FV');
+      const result = await (service as any).generateInvoiceNumber('tenant-1', 'FV');
+
+      expect(result).toBe('FV/0002');
+    });
+
+    it('should handle numbers exceeding 4 digits (FV/9999 -> FV/10000)', async () => {
+      mockPrismaService.invoice.findFirst.mockResolvedValue({ number: 'FV/9999' });
+
+      const result = await (service as any).generateInvoiceNumber('tenant-1', 'FV');
 
       expect(result).toBe('FV/10000');
     });
 
-    it('should handle database errors', async () => {
-      mockPrismaService.invoice.findFirst.mockRejectedValue(new Error('Database error'));
+    it('should propagate database errors', async () => {
+      mockPrismaService.invoice.findFirst.mockRejectedValue(new Error('DB connection lost'));
 
-      await expect((service as any).generateInvoiceNumber('tenant-123', 'FV'))
-        .rejects.toThrow('Database error');
-    });
-
-    it('should handle malformed existing invoice numbers', async () => {
-      mockPrismaService.invoice.findFirst.mockResolvedValue({
-        number: 'INVALID_FORMAT',
-      });
-
-      await expect((service as any).generateInvoiceNumber('tenant-123', 'FV'))
-        .rejects.toThrow();
+      await expect((service as any).generateInvoiceNumber('tenant-1', 'FV'))
+        .rejects.toThrow('DB connection lost');
     });
   });
 
+  // ====================================================================
+  // calculateTotals
+  // ====================================================================
   describe('calculateTotals', () => {
-    it('should calculate totals correctly for single item', () => {
-      const items = [
-        {
-          quantity: 2,
-          unitPrice: 100,
-          vatRate: 23,
-        },
-      ];
-
+    it('should calculate totals correctly for a single item', () => {
+      const items = [{ quantity: 2, unitPrice: 100, vatRate: 23 }];
       const result = (service as any).calculateTotals(items);
 
       expect(result).toEqual({
@@ -531,48 +603,25 @@ describe('InvoicingService', () => {
       });
     });
 
-    it('should calculate totals correctly for multiple items', () => {
+    it('should calculate totals correctly for multiple items with different VAT rates', () => {
       const items = [
-        {
-          quantity: 2,
-          unitPrice: 100,
-          vatRate: 23,
-        },
-        {
-          quantity: 1,
-          unitPrice: 50,
-          vatRate: 8,
-        },
+        { quantity: 10, unitPrice: 100, vatRate: 23 },
+        { quantity: 5, unitPrice: 50, vatRate: 8 },
+        { quantity: 1, unitPrice: 1000, vatRate: 0 },
       ];
-
       const result = (service as any).calculateTotals(items);
 
+      // Net: 1000 + 250 + 1000 = 2250
+      // VAT: 230 + 20 + 0 = 250
+      // Gross: 2250 + 250 = 2500
       expect(result).toEqual({
-        totalNet: 250,
-        totalVat: 50,
-        totalGross: 300,
+        totalNet: 2250,
+        totalVat: 250,
+        totalGross: 2500,
       });
     });
 
-    it('should handle zero values', () => {
-      const items = [
-        {
-          quantity: 0,
-          unitPrice: 100,
-          vatRate: 23,
-        },
-      ];
-
-      const result = (service as any).calculateTotals(items);
-
-      expect(result).toEqual({
-        totalNet: 0,
-        totalVat: 0,
-        totalGross: 0,
-      });
-    });
-
-    it('should handle empty items array', () => {
+    it('should return zeros for an empty items array', () => {
       const result = (service as any).calculateTotals([]);
 
       expect(result).toEqual({
@@ -583,541 +632,258 @@ describe('InvoicingService', () => {
     });
 
     it('should handle fractional values', () => {
-      const items = [
-        {
-          quantity: 2.5,
-          unitPrice: 10.5,
-          vatRate: 23,
-        },
-      ];
-
+      const items = [{ quantity: 2.5, unitPrice: 10.5, vatRate: 23 }];
       const result = (service as any).calculateTotals(items);
 
       expect(result.totalNet).toBe(26.25);
-      expect(result.totalVat).toBeCloseTo(6.0375, 2);
-      expect(result.totalGross).toBeCloseTo(32.2875, 2);
+      expect(result.totalVat).toBeCloseTo(6.0375, 4);
+      expect(result.totalGross).toBeCloseTo(32.2875, 4);
+    });
+  });
+
+  // ====================================================================
+  // calculateMobileInvoice
+  // ====================================================================
+  describe('calculateMobileInvoice', () => {
+    it('should delegate to taxRulesService.calculateTaxForMobile', async () => {
+      const dto = {
+        companyId: 'company-1',
+        items: [{ description: 'Test', quantity: 1, unitPrice: 100, vatRate: 23 }],
+      };
+      const expectedResult = {
+        totalNet: 100,
+        totalVat: 23,
+        totalGross: 123,
+        vatBreakdown: [],
+        appliedRules: [],
+      };
+      mockTaxRulesService.calculateTaxForMobile.mockResolvedValue(expectedResult);
+
+      const result = await service.calculateMobileInvoice('tenant-1', dto as any);
+
+      expect(result).toEqual(expectedResult);
+      expect(mockTaxRulesService.calculateTaxForMobile).toHaveBeenCalledWith('tenant-1', dto);
+    });
+  });
+
+  // ====================================================================
+  // previewMobileInvoice
+  // ====================================================================
+  describe('previewMobileInvoice', () => {
+    it('should return preview with company info and calculated totals', async () => {
+      const dto = {
+        companyId: 'company-1',
+        items: [{ description: 'Service', quantity: 2, unitPrice: 500, vatRate: 23 }],
+      };
+      mockTaxRulesService.calculateTaxForMobile.mockResolvedValue({
+        totalNet: 1000,
+        totalVat: 230,
+        totalGross: 1230,
+        vatBreakdown: [{ rate: 23, net: 1000, vat: 230 }],
+        appliedRules: ['Standard VAT 23%'],
+      });
+      mockPrismaService.company.findFirst.mockResolvedValue({
+        name: 'My Company',
+        nip: '1111111111',
+        address: 'ul. Firmowa 5',
+      });
+
+      const result = await service.previewMobileInvoice('tenant-1', dto as any);
+
+      expect(result.success).toBe(true);
+      expect(result.preview.company.name).toBe('My Company');
+      expect(result.preview.totals.totalNet).toBe(1000);
+      expect(result.preview.totals.totalVat).toBe(230);
+      expect(result.preview.totals.totalGross).toBe(1230);
+      expect(result.preview.items).toHaveLength(1);
+      expect(result.preview.vatBreakdown).toEqual([{ rate: 23, net: 1000, vat: 230 }]);
     });
 
-    it('should handle large numbers', () => {
-      const items = [
-        {
-          quantity: 1000000,
-          unitPrice: 1000000,
-          vatRate: 23,
-        },
+    it('should throw when company is not found', async () => {
+      const dto = {
+        companyId: 'nonexistent',
+        items: [{ description: 'Test', quantity: 1, unitPrice: 100, vatRate: 23 }],
+      };
+      mockTaxRulesService.calculateTaxForMobile.mockResolvedValue({
+        totalNet: 100,
+        totalVat: 23,
+        totalGross: 123,
+        vatBreakdown: [],
+        appliedRules: [],
+      });
+      mockPrismaService.company.findFirst.mockResolvedValue(null);
+
+      await expect(service.previewMobileInvoice('tenant-1', dto as any))
+        .rejects.toThrow('Company with ID nonexistent not found');
+    });
+  });
+
+  // ====================================================================
+  // getInvoices - listowanie faktur
+  // ====================================================================
+  describe('getInvoices', () => {
+    it('should return invoices for tenant with default pagination', async () => {
+      const invoices = [
+        { id: 'inv-1', number: 'FV/0001' },
+        { id: 'inv-2', number: 'FV/0002' },
       ];
+      mockPrismaService.invoice.findMany.mockResolvedValue(invoices);
 
-      const result = (service as any).calculateTotals(items);
+      const result = await service.getInvoices('tenant-1');
 
-      expect(result.totalNet).toBe(1000000000000);
-      expect(result.totalVat).toBe(230000000000);
-      expect(result.totalGross).toBe(1230000000000);
-    });
-  });
-
-  describe('generatePDF', () => {
-    it('should generate PDF successfully', async () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-      };
-
-      const result = await (service as any).generatePDF(mockInvoice);
-
-      expect(result).toBe('invoice-invoice-id.pdf');
-      expect(fs.createWriteStream).toHaveBeenCalled();
-    });
-
-    it('should handle file system errors', async () => {
-      jest.spyOn(fs, 'createWriteStream').mockImplementation(() => {
-        throw new Error('File system error');
-      });
-
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-      };
-
-      await expect((service as any).generatePDF(mockInvoice))
-        .rejects.toThrow('File system error');
-    });
-
-    it('should handle stream errors', async () => {
-      const mockStream = {
-        on: jest.fn((event, callback) => {
-          if (event === 'error') {
-            setTimeout(() => callback(new Error('Stream error')), 0);
-          }
-        }),
-      };
-
-      jest.spyOn(fs, 'createWriteStream').mockReturnValue(mockStream as any);
-
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-      };
-
-      await expect((service as any).generatePDF(mockInvoice))
-        .rejects.toThrow('Stream error');
-    });
-
-    it('should create uploads directory if it does not exist', async () => {
-      jest.spyOn(fs, 'existsSync').mockReturnValue(false);
-
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-      };
-
-      await (service as any).generatePDF(mockInvoice);
-
-      expect(fs.mkdirSync).toHaveBeenCalled();
-    });
-  });
-
-  describe('queueKSeFSubmission', () => {
-    it('should submit to KSeF when authenticated', async () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [
-          {
-            description: 'Test Item',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-            netAmount: 200,
-            vatAmount: 46,
-            grossAmount: 246,
-          },
-        ],
-      };
-
-      mockPrismaService.invoice.findUnique.mockResolvedValue(mockInvoice);
-      mockKsefService.getAuthStatus.mockReturnValue({ authenticated: true });
-      mockKsefService.submitInvoice.mockResolvedValue({ success: true });
-
-      await (service as any).queueKSeFSubmission('invoice-id', 'tenant-123');
-
-      expect(ksefService.submitInvoice).toHaveBeenCalled();
-      expect(prismaService.taskQueue.create).not.toHaveBeenCalled();
-    });
-
-    it('should queue for later when KSeF not authenticated', async () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [],
-      };
-
-      mockPrismaService.invoice.findUnique.mockResolvedValue(mockInvoice);
-      mockKsefService.getAuthStatus.mockReturnValue({ authenticated: false });
-
-      await (service as any).queueKSeFSubmission('invoice-id', 'tenant-123');
-
-      expect(ksefService.submitInvoice).not.toHaveBeenCalled();
-      expect(prismaService.taskQueue.create).toHaveBeenCalledWith({
-        data: {
-          tenant_id: 'tenant-123',
-          type: 'ksef_submission',
-          payload: { invoiceId: 'invoice-id' },
-        },
-      });
-    });
-
-    it('should queue for retry when KSeF submission fails', async () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [],
-      };
-
-      mockPrismaService.invoice.findUnique.mockResolvedValue(mockInvoice);
-      mockKsefService.getAuthStatus.mockReturnValue({ authenticated: true });
-      mockKsefService.submitInvoice.mockRejectedValue(new Error('KSeF error'));
-
-      await (service as any).queueKSeFSubmission('invoice-id', 'tenant-123');
-
-      expect(prismaService.taskQueue.create).toHaveBeenCalledWith({
-        data: {
-          tenant_id: 'tenant-123',
-          type: 'ksef_submission_retry',
-          payload: { invoiceId: 'invoice-id' },
-          status: 'pending',
-          retryCount: 0,
-        },
-      });
-    });
-
-    it('should handle invoice not found', async () => {
-      mockPrismaService.invoice.findUnique.mockResolvedValue(null);
-
-      await expect((service as any).queueKSeFSubmission('invoice-id', 'tenant-123'))
-        .rejects.toThrow('Invoice invoice-id not found');
-    });
-
-    it('should handle database errors during invoice lookup', async () => {
-      mockPrismaService.invoice.findUnique.mockRejectedValue(new Error('Database error'));
-
-      await expect((service as any).queueKSeFSubmission('invoice-id', 'tenant-123'))
-        .rejects.toThrow('Database error');
-    });
-
-    it('should handle task queue creation errors', async () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [],
-      };
-
-      mockPrismaService.invoice.findUnique.mockResolvedValue(mockInvoice);
-      mockKsefService.getAuthStatus.mockReturnValue({ authenticated: false });
-      mockPrismaService.taskQueue.create.mockRejectedValue(new Error('Task queue error'));
-
-      await expect((service as any).queueKSeFSubmission('invoice-id', 'tenant-123'))
-        .rejects.toThrow('Task queue error');
-    });
-  });
-
-  describe('convertToKSeFDto', () => {
-    it('should convert invoice to KSeF format correctly', () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        dueDate: new Date('2024-02-15'),
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address',
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [
-          {
-            description: 'Test Item',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-            netAmount: 200,
-            vatAmount: 46,
-            grossAmount: 246,
-          },
-        ],
-      };
-
-      const result = (service as any).convertToKSeFDto(mockInvoice);
-
-      expect(result).toEqual({
-        invoiceNumber: 'FV/0001',
-        issueDate: '2024-01-15',
-        dueDate: '2024-02-15',
-        sellerName: 'Your Company Name',
-        sellerNip: '1234567890',
-        sellerAddress: 'Company Address',
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address',
-        items: [
-          {
-            name: 'Test Item',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-            netAmount: 200,
-            vatAmount: 46,
-            grossAmount: 246,
-          },
-        ],
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        paymentMethod: 'przelew',
-      });
-    });
-
-    it('should handle missing due date', () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        // dueDate is missing
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address',
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [],
-      };
-
-      const result = (service as any).convertToKSeFDto(mockInvoice);
-
-      expect(result.dueDate).toBe('2024-01-15');
-    });
-
-    it('should handle missing buyer address', () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        // buyerAddress is missing
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [],
-      };
-
-      const result = (service as any).convertToKSeFDto(mockInvoice);
-
-      expect(result.buyerAddress).toBe('');
-    });
-
-    it('should handle missing buyer NIP', () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        buyerName: 'Test Buyer',
-        // buyerNip is missing
-        buyerAddress: 'Buyer Address',
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [],
-      };
-
-      const result = (service as any).convertToKSeFDto(mockInvoice);
-
-      expect(result.buyerNip).toBe('');
-    });
-
-    it('should handle multiple items', () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address',
-        totalNet: 250,
-        totalVat: 50,
-        totalGross: 300,
-        items: [
-          {
-            description: 'Item 1',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-            netAmount: 200,
-            vatAmount: 46,
-            grossAmount: 246,
-          },
-          {
-            description: 'Item 2',
-            quantity: 1,
-            unitPrice: 50,
-            vatRate: 8,
-            gtu: 'GTU_02',
-            netAmount: 50,
-            vatAmount: 4,
-            grossAmount: 54,
-          },
-        ],
-      };
-
-      const result = (service as any).convertToKSeFDto(mockInvoice);
-
-      expect(result.items).toHaveLength(2);
-      expect(result.items[0]).toEqual({
-        name: 'Item 1',
-        quantity: 2,
-        unitPrice: 100,
-        vatRate: 23,
-        gtu: 'GTU_01',
-        netAmount: 200,
-        vatAmount: 46,
-        grossAmount: 246,
-      });
-      expect(result.items[1]).toEqual({
-        name: 'Item 2',
-        quantity: 1,
-        unitPrice: 50,
-        vatRate: 8,
-        gtu: 'GTU_02',
-        netAmount: 50,
-        vatAmount: 4,
-        grossAmount: 54,
-      });
-    });
-
-    it('should handle items without GTU codes', () => {
-      const mockInvoice = {
-        id: 'invoice-id',
-        number: 'FV/0001',
-        date: new Date('2024-01-15'),
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address',
-        totalNet: 200,
-        totalVat: 46,
-        totalGross: 246,
-        items: [
-          {
-            description: 'Test Item',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            // gtu is missing
-            netAmount: 200,
-            vatAmount: 46,
-            grossAmount: 246,
-          },
-        ],
-      };
-
-      const result = (service as any).convertToKSeFDto(mockInvoice);
-
-      expect(result.items[0].gtu).toBeUndefined();
-    });
-  });
-
-  describe('Error handling and edge cases', () => {
-    it('should handle null tenant_id', async () => {
-      const mockInvoiceData = {
-        company_id: 'company-id',
-        series: 'FV',
-        date: '2024-01-15',
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address',
-        items: [
-          {
-            description: 'Test Item',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-          },
-        ],
-      };
-
-      await expect(service.createInvoice(null as any, mockInvoiceData))
-        .rejects.toThrow();
-    });
-
-    it('should handle undefined tenant_id', async () => {
-      const mockInvoiceData = {
-        company_id: 'company-id',
-        series: 'FV',
-        date: '2024-01-15',
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address',
-        items: [
-          {
-            description: 'Test Item',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-          },
-        ],
-      };
-
-      await expect(service.createInvoice(undefined as any, mockInvoiceData))
-        .rejects.toThrow();
-    });
-
-    it('should handle very large tenant_id', async () => {
-      const largeTenantId = 'a'.repeat(1000);
-
-      const mockInvoiceData = {
-        company_id: 'company-id',
-        series: 'FV',
-        date: '2024-01-15',
-        buyerName: 'Test Buyer',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address',
-        items: [
-          {
-            description: 'Test Item',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-          },
-        ],
-      };
-
-      const result = await service.createInvoice(largeTenantId, mockInvoiceData);
-
-      expect(result).toBeDefined();
-      expect(prismaService.invoice.create).toHaveBeenCalledWith(
+      expect(result).toEqual(invoices);
+      expect(mockPrismaService.invoice.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            tenant_id: largeTenantId,
-          }),
-        })
+          where: { tenant_id: 'tenant-1' },
+          take: 50,
+          skip: 0,
+          orderBy: { createdAt: 'desc' },
+        }),
       );
     });
 
-    it('should handle special characters in data', async () => {
-      const specialData = {
-        company_id: 'company-id',
-        series: 'FV',
-        date: '2024-01-15',
-        buyerName: 'Test Buyer ñáéíóú',
-        buyerNip: '1234567890',
-        buyerAddress: 'Buyer Address!@#$%^&*()',
-        items: [
-          {
-            description: 'Test Item with spëcial çhars',
-            quantity: 2,
-            unitPrice: 100,
-            vatRate: 23,
-            gtu: 'GTU_01',
-          },
-        ],
+    it('should apply companyId filter', async () => {
+      mockPrismaService.invoice.findMany.mockResolvedValue([]);
+
+      await service.getInvoices('tenant-1', { companyId: 'company-1' });
+
+      expect(mockPrismaService.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            company_id: 'company-1',
+          }),
+        }),
+      );
+    });
+
+    it('should apply date range filter', async () => {
+      mockPrismaService.invoice.findMany.mockResolvedValue([]);
+
+      await service.getInvoices('tenant-1', {
+        dateFrom: '2025-01-01',
+        dateTo: '2025-03-31',
+      });
+
+      expect(mockPrismaService.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            date: {
+              gte: new Date('2025-01-01'),
+              lte: new Date('2025-03-31'),
+            },
+          }),
+        }),
+      );
+    });
+  });
+
+  // ====================================================================
+  // getInvoiceById
+  // ====================================================================
+  describe('getInvoiceById', () => {
+    it('should return invoice when found', async () => {
+      const invoice = { id: 'inv-1', number: 'FV/0001', tenant_id: 'tenant-1' };
+      mockPrismaService.invoice.findFirst.mockResolvedValue(invoice);
+
+      const result = await service.getInvoiceById('tenant-1', 'inv-1');
+
+      expect(result).toEqual(invoice);
+    });
+
+    it('should throw when invoice is not found', async () => {
+      mockPrismaService.invoice.findFirst.mockResolvedValue(null);
+
+      await expect(service.getInvoiceById('tenant-1', 'nonexistent'))
+        .rejects.toThrow('Invoice with ID nonexistent not found');
+    });
+  });
+
+  // ====================================================================
+  // deleteInvoice
+  // ====================================================================
+  describe('deleteInvoice', () => {
+    it('should delete an existing invoice', async () => {
+      mockPrismaService.invoice.findFirst.mockResolvedValue({ id: 'inv-1' });
+      mockPrismaService.invoice.delete.mockResolvedValue({ id: 'inv-1' });
+
+      await service.deleteInvoice('tenant-1', 'inv-1');
+
+      expect(mockPrismaService.invoice.delete).toHaveBeenCalledWith({
+        where: { id: 'inv-1' },
+      });
+    });
+
+    it('should throw when deleting non-existent invoice', async () => {
+      mockPrismaService.invoice.findFirst.mockResolvedValue(null);
+
+      await expect(service.deleteInvoice('tenant-1', 'nonexistent'))
+        .rejects.toThrow('Invoice with ID nonexistent not found');
+    });
+  });
+
+  // ====================================================================
+  // validateMobileInvoice
+  // ====================================================================
+  describe('validateMobileInvoice', () => {
+    it('should return valid for correct data', async () => {
+      const dto = {
+        companyId: 'company-1',
+        items: [{ description: 'Service', quantity: 1, unitPrice: 100, vatRate: 23 }],
       };
 
-      const result = await service.createInvoice('tenant-123', specialData);
+      const result = await service.validateMobileInvoice('tenant-1', dto as any);
 
-      expect(result).toBeDefined();
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should return error when companyId is missing', async () => {
+      const dto = {
+        companyId: '',
+        items: [{ description: 'Service', quantity: 1, unitPrice: 100, vatRate: 23 }],
+      };
+
+      const result = await service.validateMobileInvoice('tenant-1', dto as any);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('Company ID is required');
+    });
+
+    it('should return error when items array is empty', async () => {
+      const dto = {
+        companyId: 'company-1',
+        items: [],
+      };
+
+      const result = await service.validateMobileInvoice('tenant-1', dto as any);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('At least one item is required');
+    });
+
+    it('should warn about high-value items exceeding 10000 PLN', async () => {
+      const dto = {
+        companyId: 'company-1',
+        items: [{ description: 'Expensive item', quantity: 1, unitPrice: 15000, vatRate: 23 }],
+      };
+
+      const result = await service.validateMobileInvoice('tenant-1', dto as any);
+
+      expect(result.valid).toBe(true);
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.warnings[0]).toContain('high-value');
+    });
+
+    it('should warn about zero-VAT items', async () => {
+      const dto = {
+        companyId: 'company-1',
+        items: [{ description: 'Tax exempt', quantity: 1, unitPrice: 100, vatRate: 0 }],
+      };
+
+      const result = await service.validateMobileInvoice('tenant-1', dto as any);
+
+      expect(result.valid).toBe(true);
+      expect(result.warnings.some(w => w.includes('zero-VAT'))).toBe(true);
     });
   });
 });

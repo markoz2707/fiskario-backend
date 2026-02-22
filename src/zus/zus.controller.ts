@@ -68,8 +68,7 @@ export class ZusController {
     @Param('registrationId') registrationId: string,
     @Body() dto: UpdateZUSRegistrationDto,
   ) {
-    // Implementation for updating registration
-    return { message: 'Registration update not implemented yet', registrationId };
+    return this.zusService.updateRegistration(req.user.tenant_id, registrationId, dto);
   }
 
   // Monthly/Annual Reports Endpoints (RCA, RZA, RSA, DRA, RPA)
@@ -90,8 +89,7 @@ export class ZusController {
     @Param('reportId') reportId: string,
     @Body() dto: UpdateZUSReportDto,
   ) {
-    // Implementation for updating report
-    return { message: 'Report update not implemented yet', reportId };
+    return this.zusService.updateReport(req.user.tenant_id, reportId, dto);
   }
 
   // Contribution Calculations
@@ -228,13 +226,67 @@ export class ZusController {
     }
   }
 
-  private async getCompanyInfo(tenantId: string, companyId: string) {
-    // This would typically use a CompanyService
+  // JDG ZUS Contribution Tiers
+  @Post(':companyId/jdg-contributions')
+  async calculateJDGContributions(
+    @Request() req,
+    @Param('companyId') companyId: string,
+    @Body() body: {
+      registrationDate: string;
+      annualRevenue?: number;
+      annualIncome?: number;
+      forceTier?: string;
+    },
+  ) {
+    try {
+      const tenantId = req.user?.tenant_id;
+      const registrationDate = new Date(body.registrationDate);
+
+      // Determine tier (or use forced tier)
+      const tier = body.forceTier
+        ? (body.forceTier as any)
+        : this.zusService.determineJDGTier(registrationDate, body.annualRevenue);
+
+      const calculation = this.zusService.calculateJDGContributions(tier, body.annualIncome);
+
+      return {
+        success: true,
+        data: {
+          ...calculation,
+          companyId,
+          registrationDate: body.registrationDate,
+          annualRevenue: body.annualRevenue,
+          annualIncome: body.annualIncome,
+        },
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to calculate JDG contributions',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Get(':companyId/jdg-tiers')
+  async getJDGTiers() {
+    const { ZUS_JDG_TIERS } = require('./dto/zus-contribution.dto');
     return {
-      nip: '1234567890',
-      name: 'Company Name',
-      regon: '',
-      establishmentDate: ''
+      success: true,
+      data: ZUS_JDG_TIERS,
+    };
+  }
+
+  private async getCompanyInfo(tenantId: string, companyId: string) {
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, tenant_id: tenantId },
+    });
+    return {
+      nip: company?.nip || '',
+      name: company?.name || 'Brak danych firmy',
+      regon: company?.regon || '',
     };
   }
 }

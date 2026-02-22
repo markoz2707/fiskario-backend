@@ -2,8 +2,9 @@ import { Controller, Post, Body, UseGuards, Request, Get, Param, HttpException, 
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MobileSyncService } from './mobile-sync.service';
-import { WorkflowAutomationService } from '../workflow-automation/services/workflow-engine.service';
+import { WorkflowEngineService } from '../workflow-automation/services/workflow-engine.service';
 import { ManagementDashboardService } from '../management-dashboard/services/management-dashboard.service';
+import { FullSyncDto, IncrementalSyncDto, ConflictResolutionDto, ForceSyncDto } from './dto/mobile-sync.dto';
 
 @ApiTags('Mobile Sync')
 @Controller('mobile-sync')
@@ -12,7 +13,7 @@ import { ManagementDashboardService } from '../management-dashboard/services/man
 export class MobileSyncController {
   constructor(
     private readonly mobileSyncService: MobileSyncService,
-    private readonly workflowService: WorkflowAutomationService,
+    private readonly workflowService: WorkflowEngineService,
     private readonly dashboardService: ManagementDashboardService,
   ) {}
 
@@ -24,15 +25,15 @@ export class MobileSyncController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
-  async performFullSync(@Body() syncData: any, @Request() req) {
+  async performFullSync(@Body() syncData: FullSyncDto, @Request() req) {
     try {
       const tenantId = req.user?.tenant_id || 'default-tenant';
 
       // Sync workflow states
-      const workflowSync = await this.workflowService.syncWorkflowStates(tenantId, syncData.workflowStates);
+      const workflowSync = await this.mobileSyncService.syncWorkflowStates(tenantId, syncData.workflowStates || []);
 
       // Sync dashboard data
-      const dashboardSync = await this.dashboardService.syncDashboardData(tenantId, syncData.dashboardData);
+      const dashboardSync = await this.mobileSyncService.syncDashboardData(tenantId, syncData.dashboardData);
 
       // Sync cached information
       const cacheSync = await this.mobileSyncService.syncCachedData(tenantId, syncData.cachedData);
@@ -64,15 +65,15 @@ export class MobileSyncController {
     status: 200,
     description: 'Incremental sync completed successfully',
   })
-  async performIncrementalSync(@Body() syncData: any, @Request() req) {
+  async performIncrementalSync(@Body() syncData: IncrementalSyncDto, @Request() req) {
     try {
       const tenantId = req.user?.tenant_id || 'default-tenant';
 
       // Incremental sync for workflows
-      const workflowSync = await this.workflowService.syncIncrementalWorkflows(tenantId, syncData.workflowChanges);
+      const workflowSync = await this.mobileSyncService.syncIncrementalWorkflows(tenantId, syncData.workflowChanges || []);
 
       // Incremental sync for dashboard
-      const dashboardSync = await this.dashboardService.syncIncrementalDashboard(tenantId, syncData.dashboardChanges);
+      const dashboardSync = await this.mobileSyncService.syncIncrementalDashboard(tenantId, syncData.dashboardChanges);
 
       return {
         success: true,
@@ -122,7 +123,7 @@ export class MobileSyncController {
     status: 200,
     description: 'Conflict resolved successfully',
   })
-  async resolveSyncConflict(@Body() conflictData: any, @Request() req) {
+  async resolveSyncConflict(@Body() conflictData: ConflictResolutionDto, @Request() req) {
     try {
       const tenantId = req.user?.tenant_id || 'default-tenant';
       return await this.mobileSyncService.resolveSyncConflict(tenantId, conflictData);
@@ -170,13 +171,13 @@ export class MobileSyncController {
     status: 200,
     description: 'Force sync completed successfully',
   })
-  async forceSync(@Body() syncData: any, @Request() req) {
+  async forceSync(@Body() syncData: ForceSyncDto, @Request() req) {
     try {
       const tenantId = req.user?.tenant_id || 'default-tenant';
 
       // Force sync all components
-      const workflowSync = await this.workflowService.forceSyncWorkflows(tenantId, syncData.workflowData);
-      const dashboardSync = await this.dashboardService.forceSyncDashboard(tenantId, syncData.dashboardData);
+      const workflowSync = await this.mobileSyncService.forceSyncWorkflows(tenantId, syncData.workflowData || []);
+      const dashboardSync = await this.mobileSyncService.forceSyncDashboard(tenantId, syncData.dashboardData);
 
       return {
         success: true,
