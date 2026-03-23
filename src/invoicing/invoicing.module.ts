@@ -13,6 +13,6 @@ import { TaxRulesModule } from '../tax-rules/tax-rules.module';
   imports: [PrismaModule, KsefModule, TaxRulesModule],
   providers: [InvoicingService, BuyersService, InvoiceCorrectionService],
   controllers: [InvoicingController, InvoicesController, BuyersController],
-  exports: [InvoiceCorrectionService],
+  exports: [InvoicingService, BuyersService, InvoiceCorrectionService],
 })
 export class InvoicingModule {}

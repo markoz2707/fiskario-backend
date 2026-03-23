@@ -24,6 +24,9 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Generate Prisma client
+RUN npx prisma generate
+
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nestjs -u 1001
@@ -51,6 +54,9 @@ RUN npm ci
 
 # Copy source code
 COPY . .
+
+# Generate Prisma client
+RUN npx prisma generate
 
 # Build the application
 RUN npm run build

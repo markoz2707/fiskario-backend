@@ -24,9 +24,9 @@ export class CompaniesService {
         }
       }
 
-      // Convert address object to string if provided
-      const addressString = dto.address
-        ? `${dto.address.street}, ${dto.address.postalCode} ${dto.address.city}, ${dto.address.country}`
+      // Store address as JSON object instead of concatenated string
+      const addressJson = dto.address
+        ? JSON.parse(JSON.stringify(dto.address))
         : undefined;
 
       this.logger.log('[COMPANY CREATION] Creating company in database...');
@@ -37,7 +37,7 @@ export class CompaniesService {
           nip: dto.nip,
           nipEncrypted: dto.nip, // In real app, encrypt this
           regon: dto.regon,
-          address: addressString,
+          address: addressJson,
           vatStatus: dto.vatStatus,
           taxOffice: dto.taxOffice,
           isActive: dto.isActive ?? true,
@@ -63,9 +63,9 @@ export class CompaniesService {
       throw new NotFoundException('Company not found');
     }
 
-    // Convert address object to string if provided
-    const addressString = dto.address && typeof dto.address === 'object'
-      ? `${dto.address.street}, ${dto.address.postalCode} ${dto.address.city}, ${dto.address.country}`
+    // Store address as JSON object instead of concatenated string
+    const addressJson = dto.address && typeof dto.address === 'object'
+      ? JSON.parse(JSON.stringify(dto.address))
       : dto.address;
 
     return this.prisma.company.update({
@@ -75,7 +75,7 @@ export class CompaniesService {
         nip: dto.nip,
         nipEncrypted: dto.nip,
         regon: dto.regon,
-        address: addressString,
+        address: addressJson,
         vatStatus: dto.vatStatus,
         taxOffice: dto.taxOffice,
         isActive: dto.isActive,

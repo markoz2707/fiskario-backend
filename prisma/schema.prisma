@@ -45,7 +45,7 @@ model Company {
   name                  String
   nip                   String?
   nipEncrypted          String?
-  address               String?
+  address               Json?
   taxForm               String?
   vatPayer              Boolean                @default(false)
   isActive              Boolean                @default(true)
@@ -67,6 +67,7 @@ model Company {
   zusRegistrations      ZUSRegistration[]
   zusReports            ZUSReport[]
   zusSubmissions        ZUSSubmission[]
+  apiCredentials        CompanyApiCredentials[]
   kpirEntries           KPiREntry[]
   remanents             Remanent[]
   fixedAssets           FixedAsset[]
@@ -928,6 +929,28 @@ model CompanyTaxSettings {
   @@index([company_id])
   @@index([taxFormId])
   @@index([isSelected])
+}
+
+model CompanyApiCredentials {
+  id              String   @id @default(cuid())
+  tenant_id       String
+  company_id      String
+  service         String   // "ksef" | "zus" | "epuap"
+  clientId        String?
+  clientSecret    String?  // Should be encrypted in production
+  apiKey          String?  // Should be encrypted in production
+  certificatePath String?
+  environment     String   @default("test") // "test" | "production"
+  isActive        Boolean  @default(true)
+  lastTestedAt    DateTime?
+  testResult      String?  // "success" | "failure"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company  @relation(fields: [company_id], references: [id])
+
+  @@unique([tenant_id, company_id, service])
+  @@index([tenant_id])
+  @@index([company_id])
 }
 
 model DigitalCertificate {

@@ -154,7 +154,7 @@ export class ZusService {
       company: {
         name: company?.name || '',
         nip: company?.nip || '',
-        address: company?.address || '',
+        address: (company?.address as string) || '',
       },
     };
 
@@ -199,7 +199,7 @@ export class ZusService {
       company: {
         name: company?.name || '',
         nip: company?.nip || '',
-        address: company?.address || '',
+        address: (company?.address as string) || '',
       },
       summary: {
         totalEmployees: contributions.length,

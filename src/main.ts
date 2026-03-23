@@ -48,7 +48,8 @@ async function bootstrap() {
   });
 
   // API versioning middleware
-  app.use(new ApiVersioningMiddleware().use);
+  const versioningMiddleware = new ApiVersioningMiddleware();
+  app.use(versioningMiddleware.use.bind(versioningMiddleware));
 
   // Global validation pipe
   app.useGlobalPipes(new ValidationPipe({
